@@ -1,0 +1,52 @@
+{
+  "name": "flyeasy",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "main": "src/desktop/main/main.mjs",
+  "scripts": {
+    "dev": "next dev",
+    "dev:desktop": "node scripts/dev-desktop.mjs",
+    "electron": "electron src/desktop/main/main.mjs",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint . --ext .js,.mjs,.ts,.tsx",
+    "typecheck": "tsc --noEmit",
+    "db:generate": "node scripts/db-generate.mjs",
+    "db:migrate": "node scripts/db-migrate.mjs",
+    "proof:install-browser": "npx playwright install chromium",
+    "proof:session-probe": "node scripts/proofs/session-probe.mjs",
+    "proof:packaged-search": "node scripts/proofs/packaged-search-extraction.mjs",
+    "proof:deep-verification": "node scripts/proofs/deep-verification-boundary.mjs",
+    "proof:recovery-resume": "node scripts/proofs/recovery-resume.mjs",
+    "locations:sync-tripcom": "node scripts/locations/sync-tripcom-location-catalog.mjs",
+    "tripcom:check": "node scripts/automation/check-connection.mjs",
+    "tripcom:baseline-run": "node scripts/automation/run-baseline-search.mjs"
+  },
+  "dependencies": {
+    "@phosphor-icons/react": "^2.1.10",
+    "better-sqlite3": "^11.0.0",
+    "drizzle-orm": "^0.33.0",
+    "electron": "^41.0.2",
+    "next": "^16.1.6",
+    "playwright": "^1.55.0",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.12",
+    "@types/node": "^20.14.10",
+    "@types/react": "^19.2.2",
+    "@types/react-dom": "^19.2.2",
+    "autoprefixer": "^10.4.19",
+    "eslint": "^9.38.0",
+    "eslint-config-next": "^16.1.6",
+    "postcss": "^8.4.39",
+    "tailwindcss": "^3.4.7",
+    "typescript": "^5.5.4"
+  },
+  "overrides": {
+    "yauzl": "^3.2.1"
+  }
+}

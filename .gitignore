@@ -5,6 +5,19 @@ node_modules/
 dist/
 build/
 .next/
+out/
+release/
+*.tsbuildinfo
+
+# Local desktop/runtime files
+.tmp/
+.tmp-*/
+.tmp-electron-data/
+.tmp-shots/
+artifacts/
+playwright-state/
+*.png
+*.html
 
 # Environment files
 .env
@@ -17,3 +30,16 @@ build/
 .DS_Store
 Thumbs.db
 .vscode/
+
+# Local tooling/runtime state
+.codex/
+.codex-runtime/
+
+# Local databases
+*.db
+*.db-shm
+*.db-wal
+
+# App data / captures
+desktop-capture.png
+desktop-debug.log

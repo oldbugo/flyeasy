@@ -1,0 +1,2 @@
+-- FlyEasy bootstrap migration
+-- Replace this file with generated SQL once the schema is implemented.

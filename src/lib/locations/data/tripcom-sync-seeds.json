@@ -1,0 +1,20 @@
+{
+  "airportQueries": [
+    "Melbourne",
+    "Sydney",
+    "Guangzhou",
+    "Shanghai",
+    "Shenzhen",
+    "Beijing",
+    "Chengdu"
+  ],
+  "cityQueries": [
+    "Guangzhou",
+    "Shanghai",
+    "Shenzhen",
+    "Beijing",
+    "Chengdu",
+    "Hangzhou",
+    "Xiamen"
+  ]
+}

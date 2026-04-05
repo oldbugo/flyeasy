@@ -1,0 +1,121 @@
+[
+  {
+    "aliases": ["mel", "melbourne", "melbourne airport", "tullamarine"],
+    "cityName": "Melbourne",
+    "code": "MEL",
+    "country": "Australia",
+    "displayName": "Melbourne Airport"
+  },
+  {
+    "aliases": ["avv", "melbourne", "avalon", "melbourne avalon", "avalon airport"],
+    "cityName": "Melbourne",
+    "code": "AVV",
+    "country": "Australia",
+    "displayName": "Avalon Airport"
+  },
+  {
+    "aliases": ["meb", "melbourne", "essendon", "melbourne essendon", "essendon airport"],
+    "cityName": "Melbourne",
+    "code": "MEB",
+    "country": "Australia",
+    "displayName": "Essendon Airport"
+  },
+  {
+    "aliases": ["syd", "sydney", "sydney airport", "kingsford smith"],
+    "cityName": "Sydney",
+    "code": "SYD",
+    "country": "Australia",
+    "displayName": "Sydney Airport"
+  },
+  {
+    "aliases": ["bne", "brisbane", "brisbane airport"],
+    "cityName": "Brisbane",
+    "code": "BNE",
+    "country": "Australia",
+    "displayName": "Brisbane Airport"
+  },
+  {
+    "aliases": ["can", "guangzhou", "guangzhou baiyun", "canton"],
+    "cityName": "Guangzhou",
+    "code": "CAN",
+    "country": "China",
+    "displayName": "Guangzhou Baiyun International Airport"
+  },
+  {
+    "aliases": ["sha", "shanghai hongqiao", "shanghai"],
+    "cityName": "Shanghai",
+    "code": "SHA",
+    "country": "China",
+    "displayName": "Shanghai Hongqiao International Airport"
+  },
+  {
+    "aliases": ["pvg", "shanghai pudong", "shanghai"],
+    "cityName": "Shanghai",
+    "code": "PVG",
+    "country": "China",
+    "displayName": "Shanghai Pudong International Airport"
+  },
+  {
+    "aliases": ["szx", "shenzhen", "shenzhen baoan"],
+    "cityName": "Shenzhen",
+    "code": "SZX",
+    "country": "China",
+    "displayName": "Shenzhen Bao'an International Airport"
+  },
+  {
+    "aliases": ["pek", "beijing", "beijing capital", "bjs"],
+    "cityName": "Beijing",
+    "code": "PEK",
+    "country": "China",
+    "displayName": "Beijing Capital International Airport"
+  },
+  {
+    "aliases": ["pkx", "beijing daxing", "daxing"],
+    "cityName": "Beijing",
+    "code": "PKX",
+    "country": "China",
+    "displayName": "Beijing Daxing International Airport"
+  },
+  {
+    "aliases": ["ctu", "chengdu", "chengdu shuangliu"],
+    "cityName": "Chengdu",
+    "code": "CTU",
+    "country": "China",
+    "displayName": "Chengdu Shuangliu International Airport"
+  },
+  {
+    "aliases": ["tfu", "chengdu tianfu", "tianfu"],
+    "cityName": "Chengdu",
+    "code": "TFU",
+    "country": "China",
+    "displayName": "Chengdu Tianfu International Airport"
+  },
+  {
+    "aliases": ["hgh", "hangzhou", "hangzhou xiaoshan"],
+    "cityName": "Hangzhou",
+    "code": "HGH",
+    "country": "China",
+    "displayName": "Hangzhou Xiaoshan International Airport"
+  },
+  {
+    "aliases": ["xmn", "xiamen", "xiamen gaoqi"],
+    "cityName": "Xiamen",
+    "code": "XMN",
+    "country": "China",
+    "displayName": "Xiamen Gaoqi International Airport"
+  },
+  {
+    "aliases": ["wuh", "wuhan", "wuhan tianhe"],
+    "cityName": "Wuhan",
+    "code": "WUH",
+    "country": "China",
+    "displayName": "Wuhan Tianhe International Airport"
+  },
+  {
+    "aliases": ["tao", "qingdao", "qingdao jiaodong"],
+    "cityName": "Qingdao",
+    "code": "TAO",
+    "country": "China",
+    "displayName": "Qingdao Jiaodong International Airport"
+  }
+]

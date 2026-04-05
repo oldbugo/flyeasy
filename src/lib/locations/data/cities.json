@@ -1,0 +1,68 @@
+[
+  {
+    "aliases": ["guangzhou", "canton", "can"],
+    "code": "CAN",
+    "country": "China",
+    "displayName": "Guangzhou"
+  },
+  {
+    "aliases": ["shanghai", "sha", "pvg"],
+    "code": "SHA",
+    "country": "China",
+    "displayName": "Shanghai"
+  },
+  {
+    "aliases": ["shenzhen", "szx"],
+    "code": "SZX",
+    "country": "China",
+    "displayName": "Shenzhen"
+  },
+  {
+    "aliases": ["beijing", "bjs", "pek", "pkx"],
+    "code": "BJS",
+    "country": "China",
+    "displayName": "Beijing"
+  },
+  {
+    "aliases": ["chengdu", "ctu", "tfu"],
+    "code": "CTU",
+    "country": "China",
+    "displayName": "Chengdu"
+  },
+  {
+    "aliases": ["hangzhou", "hgh"],
+    "code": "HGH",
+    "country": "China",
+    "displayName": "Hangzhou"
+  },
+  {
+    "aliases": ["xiamen", "xmn"],
+    "code": "XMN",
+    "country": "China",
+    "displayName": "Xiamen"
+  },
+  {
+    "aliases": ["wuhan", "wuh"],
+    "code": "WUH",
+    "country": "China",
+    "displayName": "Wuhan"
+  },
+  {
+    "aliases": ["qingdao", "tao"],
+    "code": "TAO",
+    "country": "China",
+    "displayName": "Qingdao"
+  },
+  {
+    "aliases": ["kunming", "kmg"],
+    "code": "KMG",
+    "country": "China",
+    "displayName": "Kunming"
+  },
+  {
+    "aliases": ["nanjing", "nkg"],
+    "code": "NKG",
+    "country": "China",
+    "displayName": "Nanjing"
+  }
+]
