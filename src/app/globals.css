@@ -37,3 +37,431 @@ a {
 *::selection {
   background: rgba(12, 107, 88, 0.18);
 }
+
+@keyframes flyeasy-loading-wave {
+  0% {
+    transform: translateX(-140%);
+  }
+
+  100% {
+    transform: translateX(140%);
+  }
+}
+
+.loading-wave {
+  position: relative;
+  overflow: hidden;
+  background: linear-gradient(180deg, #e2e8ef 0%, #edf2f6 100%);
+}
+
+.loading-wave::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    90deg,
+    rgba(255, 255, 255, 0) 0%,
+    rgba(255, 255, 255, 0.82) 48%,
+    rgba(255, 255, 255, 0) 100%
+  );
+  transform: translateX(-140%);
+  animation: flyeasy-loading-wave 1.2s ease-in-out infinite;
+  will-change: transform;
+}
+
+.flyeasy-liquid-shell {
+  position: relative;
+  overflow: hidden;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.52);
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.58) 0%, rgba(235, 241, 250, 0.34) 48%, rgba(220, 231, 246, 0.2) 100%),
+    rgba(245, 248, 252, 0.28);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.7),
+    0 16px 34px rgba(15, 23, 42, 0.08),
+    0 2px 8px rgba(148, 163, 184, 0.18);
+  backdrop-filter: blur(18px) saturate(145%);
+}
+
+.flyeasy-liquid-shell::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(circle at 16% 18%, rgba(255, 255, 255, 0.44) 0%, rgba(255, 255, 255, 0) 34%),
+    linear-gradient(108deg, rgba(255, 255, 255, 0) 30%, rgba(255, 255, 255, 0.2) 50%, rgba(255, 255, 255, 0) 70%);
+  opacity: 0.9;
+  pointer-events: none;
+}
+
+.flyeasy-liquid-tab {
+  position: relative;
+  display: inline-flex;
+  min-height: 2.6rem;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  border-radius: 999px;
+  padding: 0.58rem 0.95rem;
+  font-size: 0.92rem;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  transition:
+    background-color 180ms ease,
+    color 180ms ease,
+    box-shadow 220ms ease,
+    transform 220ms ease;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.flyeasy-liquid-tab-indicator {
+  position: absolute;
+  left: 0;
+  top: 0;
+  border-radius: 999px;
+  background: var(--sea);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.16),
+    0 10px 22px rgba(12, 107, 88, 0.18);
+  transition:
+    transform 260ms cubic-bezier(0.22, 1, 0.36, 1),
+    width 260ms cubic-bezier(0.22, 1, 0.36, 1),
+    height 260ms cubic-bezier(0.22, 1, 0.36, 1),
+    opacity 160ms ease;
+  will-change: transform, width, height;
+}
+
+.flyeasy-liquid-tab:focus-visible {
+  outline: 2px solid rgba(15, 23, 42, 0.22);
+  outline-offset: 2px;
+}
+
+.flyeasy-liquid-tab-inactive {
+  color: rgba(71, 85, 105, 0.92);
+}
+
+.flyeasy-liquid-tab-inactive:hover {
+  background: rgba(255, 255, 255, 0.18);
+  color: var(--ink);
+}
+
+.flyeasy-liquid-tab-active {
+  color: white;
+}
+
+.flyeasy-liquid-save-shell {
+  flex-shrink: 0;
+  padding: 0.3rem;
+}
+
+.flyeasy-liquid-save-button {
+  position: relative;
+  display: inline-flex;
+  min-height: 2.6rem;
+  min-width: 8.75rem;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  overflow: hidden;
+  white-space: nowrap;
+  border: 0;
+  border-radius: 999px;
+  padding: 0.58rem 1.05rem;
+  background:
+    linear-gradient(180deg, rgba(18, 122, 95, 0.96) 0%, rgba(12, 107, 88, 0.98) 100%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.18),
+    0 12px 22px rgba(12, 107, 88, 0.22);
+  color: white;
+  font-size: 0.92rem;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  transition:
+    transform 180ms ease,
+    box-shadow 180ms ease,
+    background-color 180ms ease;
+}
+
+.flyeasy-liquid-save-button:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.18),
+    0 14px 26px rgba(12, 107, 88, 0.24);
+}
+
+.flyeasy-liquid-save-button:focus-visible {
+  outline: 2px solid rgba(12, 107, 88, 0.28);
+  outline-offset: 2px;
+}
+
+.flyeasy-liquid-save-button:disabled {
+  cursor: default;
+}
+
+@keyframes flyeasy-tabs-shell-stretch {
+  0% {
+    transform: translateX(0) scaleX(1) scaleY(1);
+  }
+
+  34% {
+    transform: translateX(-1px) scaleX(1.032) scaleY(0.985);
+  }
+
+  68% {
+    transform: translateX(-3px) scaleX(1.014) scaleY(1.006);
+  }
+
+  100% {
+    transform: translateX(0) scaleX(1) scaleY(1);
+  }
+}
+
+@keyframes flyeasy-save-bridge-split {
+  0% {
+    opacity: 0;
+    transform: translateX(-2.4rem) scaleX(2.2) scaleY(0.78);
+    filter: blur(4px);
+  }
+
+  42% {
+    opacity: 0.95;
+    transform: translateX(-1rem) scaleX(1.18) scaleY(0.92);
+    filter: blur(0);
+  }
+
+  100% {
+    opacity: 0;
+    transform: translateX(-0.1rem) scaleX(0.34) scaleY(0.82);
+    filter: blur(0);
+  }
+}
+
+@keyframes flyeasy-save-shell-emerge {
+  0% {
+    opacity: 0;
+    transform: translateX(-2.1rem) scaleX(1.42) scaleY(0.84);
+    filter: blur(5px);
+  }
+
+  62% {
+    opacity: 1;
+    transform: translateX(0.16rem) scaleX(0.98) scaleY(1.02);
+    filter: blur(0);
+  }
+
+  100% {
+    opacity: 1;
+    transform: translateX(0) scaleX(1) scaleY(1);
+    filter: blur(0);
+  }
+}
+
+@keyframes flyeasy-save-shell-pop {
+  0% {
+    opacity: 1;
+    transform: scale(1) translateX(0);
+    filter: blur(0);
+  }
+
+  32% {
+    opacity: 1;
+    transform: scale(1.08) scaleY(1.03) translateX(0.05rem);
+    filter: blur(0);
+  }
+
+  100% {
+    opacity: 0;
+    transform: scale(0.66) scaleY(0.78) translateX(0.34rem);
+    filter: blur(3px);
+  }
+}
+
+@keyframes flyeasy-save-bubble-ring {
+  0% {
+    opacity: 0;
+    transform: scale(0.74);
+  }
+
+  28% {
+    opacity: 0.32;
+  }
+
+  100% {
+    opacity: 0;
+    transform: scale(1.34);
+  }
+}
+
+@keyframes flyeasy-save-label-fade {
+  from {
+    opacity: 0;
+    transform: translateY(2px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes sidebar-expanded-cluster-in {
+  0% {
+    opacity: 0;
+    transform: translateX(-10px) scale(0.985);
+  }
+
+  100% {
+    opacity: 1;
+    transform: translateX(0) scale(1);
+  }
+}
+
+@keyframes sidebar-expanded-card-in {
+  0% {
+    opacity: 0;
+    transform: translateX(-14px) scale(0.982);
+  }
+
+  58% {
+    opacity: 1;
+    transform: translateX(2px) scale(1.005);
+  }
+
+  100% {
+    opacity: 1;
+    transform: translateX(0) scale(1);
+  }
+}
+
+.flyeasy-sticky-control-group {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 0.72rem;
+  isolation: isolate;
+}
+
+.flyeasy-sticky-control-group-enter,
+.flyeasy-sticky-control-group-has-save {
+  gap: 0.78rem;
+}
+
+.flyeasy-tab-shell {
+  flex-shrink: 1;
+  transition: transform 320ms cubic-bezier(0.22, 1, 0.36, 1);
+  will-change: transform;
+}
+
+.flyeasy-tabs-shell-stretch {
+  transform-origin: center right;
+  animation: flyeasy-tabs-shell-stretch 360ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.flyeasy-tabs-shell-offset {
+  transform: translateX(-0.36rem);
+}
+
+.flyeasy-save-shell-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  isolation: isolate;
+  will-change: transform, opacity;
+}
+
+.flyeasy-save-shell-enter {
+  animation: flyeasy-save-shell-emerge 360ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  transform-origin: center left;
+}
+
+.flyeasy-save-shell-enter::before {
+  content: "";
+  position: absolute;
+  right: calc(100% - 0.4rem);
+  top: 50%;
+  width: 2.45rem;
+  height: 2.38rem;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.48);
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.54) 0%, rgba(228, 236, 247, 0.26) 100%),
+    rgba(245, 248, 252, 0.24);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.62),
+    0 10px 18px rgba(148, 163, 184, 0.16);
+  transform-origin: center right;
+  animation: flyeasy-save-bridge-split 360ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  pointer-events: none;
+}
+
+.flyeasy-save-shell-visible {
+  transform: translateZ(0);
+}
+
+.flyeasy-save-shell-exit {
+  pointer-events: none;
+  animation: flyeasy-save-shell-pop 240ms cubic-bezier(0.4, 0, 0.2, 1) both;
+  transform-origin: center;
+}
+
+.flyeasy-save-shell-exit::after {
+  content: "";
+  position: absolute;
+  inset: -0.3rem;
+  border-radius: 999px;
+  border: 1px solid rgba(12, 107, 88, 0.24);
+  animation: flyeasy-save-bubble-ring 240ms ease-out both;
+  pointer-events: none;
+}
+
+.flyeasy-save-label-enter {
+  opacity: 0;
+  animation: flyeasy-save-label-fade 120ms ease 230ms forwards;
+}
+
+@media (max-width: 1023px) {
+  .flyeasy-sticky-control-group,
+  .flyeasy-sticky-control-group-enter,
+  .flyeasy-sticky-control-group-has-save {
+    gap: 0.55rem;
+  }
+
+  .flyeasy-tabs-shell-stretch,
+  .flyeasy-tabs-shell-offset {
+    animation: none;
+    transform: none;
+  }
+
+  .flyeasy-save-shell-enter {
+    animation: flyeasy-save-shell-emerge 220ms cubic-bezier(0.2, 0.9, 0.24, 1) both;
+  }
+
+  .flyeasy-save-shell-enter::before {
+    display: none;
+  }
+
+  .flyeasy-save-shell-exit {
+    animation: flyeasy-save-shell-pop 180ms cubic-bezier(0.4, 0, 0.2, 1) both;
+  }
+}
+
+.flyeasy-sidebar-scroll-viewport {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+.flyeasy-sidebar-scroll-viewport::-webkit-scrollbar {
+  display: none;
+}
+
+.flyeasy-main-scroll-viewport {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+.flyeasy-main-scroll-viewport::-webkit-scrollbar {
+  display: none;
+}

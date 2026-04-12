@@ -16,6 +16,7 @@ import {
   buildMultiCityVerificationFollowupTargets as buildMultiCityVerificationFollowupTargetsFromEvidence,
   buildMultiCityVerificationResultsSummary as buildMultiCityVerificationResultsSummaryFromEvidence,
   buildMultiCityVerificationSeedBoard as buildMultiCityVerificationSeedBoardFromEvidence,
+  buildRecommendationDateCoverageTargets as buildRecommendationDateCoverageTargetsFromEvidence,
   buildLongStopFollowupTargets as buildLongStopFollowupTargetsFromEvidence,
   buildLongStopValidationSummary as buildLongStopValidationSummaryFromEvidence,
   buildMultiCityVerificationEvidence as buildMultiCityVerificationEvidenceFromEvidence,
@@ -1111,6 +1112,95 @@ function selectStrategyCandidates(db, strategyId) {
     .all(strategyId);
 }
 
+function sortCandidatesByDisplayedAmount(left, right) {
+  const leftPrice = Number(left?.displayed_display_amount ?? left?.displayedAmount ?? Number.POSITIVE_INFINITY);
+  const rightPrice = Number(right?.displayed_display_amount ?? right?.displayedAmount ?? Number.POSITIVE_INFINITY);
+
+  if (leftPrice !== rightPrice) {
+    return leftPrice - rightPrice;
+  }
+
+  return String(left?.id ?? "").localeCompare(String(right?.id ?? ""));
+}
+
+function buildStrategyOutcomeTelemetry(db, runId) {
+  const strategies = selectStrategies(db, runId);
+  const runCandidates = selectRunCandidates(db, runId).sort(sortCandidatesByDisplayedAmount);
+  const runBestCandidate = runCandidates[0] ?? null;
+  const intentionalCandidates = runCandidates
+    .filter((candidate) => Number(candidate.intentional_stop_count ?? 0) > 0)
+    .sort(sortCandidatesByDisplayedAmount);
+  const intentionalBestCandidate = intentionalCandidates[0] ?? null;
+  const runBestPrice = Number.isFinite(Number(runBestCandidate?.displayed_display_amount))
+    ? Number(runBestCandidate.displayed_display_amount)
+    : null;
+  const intentionalBestPrice = Number.isFinite(Number(intentionalBestCandidate?.displayed_display_amount))
+    ? Number(intentionalBestCandidate.displayed_display_amount)
+    : null;
+  const candidatesByStrategyId = new Map();
+
+  for (const candidate of runCandidates) {
+    const current = candidatesByStrategyId.get(candidate.strategy_execution_id) ?? [];
+    current.push(candidate);
+    candidatesByStrategyId.set(candidate.strategy_execution_id, current);
+  }
+
+  return {
+    analysedAt: nowIso(),
+    analysisType: "strategy_outcome_telemetry",
+    intentionalBestCandidateId: intentionalBestCandidate?.id ?? null,
+    intentionalBestPrice,
+    overallBestCandidateId: runBestCandidate?.id ?? null,
+    overallBestPrice: runBestPrice,
+    strategies: strategies.map((strategy) => {
+      const strategyCandidates = [...(candidatesByStrategyId.get(strategy.id) ?? [])].sort(
+        sortCandidatesByDisplayedAmount
+      );
+      const bestCandidate = strategyCandidates[0] ?? null;
+      const bestPrice = Number.isFinite(Number(bestCandidate?.displayed_display_amount))
+        ? Number(bestCandidate.displayed_display_amount)
+        : null;
+      const intentionalStrategyCandidates = strategyCandidates
+        .filter((candidate) => Number(candidate.intentional_stop_count ?? 0) > 0)
+        .sort(sortCandidatesByDisplayedAmount);
+      const bestIntentionalCandidate = intentionalStrategyCandidates[0] ?? null;
+      const bestIntentionalPrice = Number.isFinite(
+        Number(bestIntentionalCandidate?.displayed_display_amount)
+      )
+        ? Number(bestIntentionalCandidate.displayed_display_amount)
+        : null;
+
+      return {
+        actualSearchCost: Number(strategy.actual_search_cost ?? strategy.actualSearchCost ?? 0),
+        bestCandidateId: bestCandidate?.id ?? null,
+        bestIntentionalCandidateId: bestIntentionalCandidate?.id ?? null,
+        bestIntentionalPrice,
+        bestIntentionalPriceDeltaFromIntentionalWinner:
+          intentionalBestPrice !== null && bestIntentionalPrice !== null
+            ? Math.max(0, bestIntentionalPrice - intentionalBestPrice)
+            : null,
+        bestPrice,
+        bestPriceDeltaFromWinner:
+          runBestPrice !== null && bestPrice !== null ? Math.max(0, bestPrice - runBestPrice) : null,
+        candidateCount: strategyCandidates.length,
+        candidateShareOfRun:
+          runCandidates.length > 0 ? Number((strategyCandidates.length / runCandidates.length).toFixed(3)) : 0,
+        deliveredIntentionalWinner:
+          Boolean(intentionalBestCandidate?.id) && bestIntentionalCandidate?.id === intentionalBestCandidate?.id,
+        deliveredRunWinner: Boolean(runBestCandidate?.id) && bestCandidate?.id === runBestCandidate?.id,
+        priority: Number(strategy.priority ?? 0),
+        recordedCandidateCount: Number(strategy.candidate_count ?? strategy.candidateCount ?? 0),
+        recordedVerifiedCandidateCount: Number(
+          strategy.verified_candidate_count ?? strategy.verifiedCandidateCount ?? 0
+        ),
+        status: strategy.status,
+        strategyExecutionId: strategy.id,
+        strategyType: strategy.strategy_type ?? strategy.strategyType ?? null
+      };
+    })
+  };
+}
+
 function selectBaselineExpansionCandidates(db, strategyId) {
   return db
     .prepare(
@@ -1168,12 +1258,45 @@ function selectBaselineExpansionCandidates(db, strategyId) {
     .filter((entry) => entry.resumeUrl && entry.outboundCard && entry.returnCard);
 }
 
-function collectStrategyIdsByTypeBeforePriority(strategies, priority, allowedTypes) {
+function readReturnOptionExpansionHistory(db, sessionId, currentRunId) {
+  return (
+    db
+      .prepare(
+        `select
+           count(*) as completedExecutions,
+           sum(coalesce(se.actual_search_cost, 0)) as totalSearchCost,
+           sum(coalesce(se.candidate_count, 0)) as totalCandidates
+         from strategy_execution se
+         inner join search_run r
+           on r.id = se.search_run_id
+         where r.session_id = ?
+           and r.id <> ?
+           and se.strategy_type = 'packaged_return_option_expansion'
+           and se.status = 'completed'`
+      )
+      .get(sessionId, currentRunId) ?? {
+      completedExecutions: 0,
+      totalCandidates: 0,
+      totalSearchCost: 0
+    }
+  );
+}
+
+function collectStrategyIdsByTypeBeforePriority(
+  strategies,
+  priority,
+  allowedTypes,
+  options = {}
+) {
   const typeSet = new Set(allowedTypes);
+  const requireCandidates = options.requireCandidates === true;
 
   return strategies
     .filter(
-      (strategy) => strategy.priority < priority && typeSet.has(strategy.strategy_type)
+      (strategy) =>
+        strategy.priority < priority &&
+        typeSet.has(strategy.strategy_type) &&
+        (!requireCandidates || Number(strategy.candidate_count ?? strategy.candidateCount ?? 0) > 0)
     )
     .map((strategy) => strategy.id);
 }
@@ -1825,6 +1948,23 @@ function buildBaselineFollowupHandoff({ anchorDates, db, destinationCityCode, st
   });
 }
 
+function buildRecommendationDateCoverageTargets({
+  candidateReviewLimit,
+  db,
+  routeTargetLimit,
+  runSeed,
+  strategyIds
+}) {
+  return buildRecommendationDateCoverageTargetsFromEvidence({
+    candidateReviewLimit,
+    db,
+    resolveCityName,
+    routeTargetLimit,
+    runSeed,
+    strategyIds
+  });
+}
+
 function buildLongStopValidationSummary({
   db,
   minimumLongStopHours,
@@ -2247,6 +2387,97 @@ function enumerateAnchoredDatePairs(runRow, anchorDate, limit, existingPairKeys)
   }
 
   return sampleEvenly(pairs, limit);
+}
+
+function enumerateRecommendationCoverageDatePairs({ departDate, limit, returnDate, runRow, runSeed }) {
+  const durationMin = Math.max(1, Number(runRow.duration_min_days ?? 7));
+  const durationMax = Math.max(durationMin, Number(runRow.duration_max_days ?? durationMin));
+  const latestReturnDate = runRow.return_end_date ?? runRow.departure_end_date;
+  const earliestDepartDate = runRow.departure_start_date;
+  const latestDepartDate = runRow.departure_end_date;
+  const targetDuration = Math.max(
+    durationMin,
+    Math.min(durationMax, getDateDistanceDays(departDate, returnDate))
+  );
+  const variationWindowDays = Math.max(2, Math.min(4, Number(limit ?? 1) + 1));
+  const pairCandidates = [];
+  const seenPairKeys = new Set([buildDatePairKey({ departDate, returnDate })]);
+
+  for (
+    let departOffset = -variationWindowDays;
+    departOffset <= variationWindowDays;
+    departOffset += 1
+  ) {
+    const candidateDepartDate = addDays(departDate, departOffset);
+
+    if (
+      compareIsoDates(candidateDepartDate, earliestDepartDate) < 0 ||
+      compareIsoDates(candidateDepartDate, latestDepartDate) > 0
+    ) {
+      continue;
+    }
+
+    for (
+      let returnOffset = -variationWindowDays;
+      returnOffset <= variationWindowDays;
+      returnOffset += 1
+    ) {
+      const candidateReturnDate = addDays(returnDate, returnOffset);
+      const pairKey = buildDatePairKey({
+        departDate: candidateDepartDate,
+        returnDate: candidateReturnDate
+      });
+
+      if (seenPairKeys.has(pairKey) || compareIsoDates(candidateReturnDate, latestReturnDate) > 0) {
+        continue;
+      }
+
+      const durationDays =
+        Number(readDateOrdinal(candidateReturnDate) ?? 0) -
+        Number(readDateOrdinal(candidateDepartDate) ?? 0);
+
+      if (durationDays < durationMin || durationDays > durationMax) {
+        continue;
+      }
+
+      seenPairKeys.add(pairKey);
+      pairCandidates.push({
+        departDate: candidateDepartDate,
+        durationDays,
+        returnDate: candidateReturnDate,
+        score:
+          Math.abs(departOffset) +
+          Math.abs(returnOffset) +
+          Math.abs(durationDays - targetDuration) * 0.75 +
+          createDeterministicUnitInterval(
+            `${runSeed}:${candidateDepartDate}:${candidateReturnDate}`
+          ) *
+            0.15
+      });
+    }
+  }
+
+  return pairCandidates
+    .sort((left, right) => {
+      if (left.score !== right.score) {
+        return left.score - right.score;
+      }
+
+      const leftPriceDistance = Math.abs(Number(left.durationDays ?? targetDuration) - targetDuration);
+      const rightPriceDistance = Math.abs(Number(right.durationDays ?? targetDuration) - targetDuration);
+
+      if (leftPriceDistance !== rightPriceDistance) {
+        return leftPriceDistance - rightPriceDistance;
+      }
+
+      return buildDatePairKey(left).localeCompare(buildDatePairKey(right));
+    })
+    .slice(0, Math.max(1, Number(limit ?? 1)))
+    .map(({ departDate: nextDepartDate, durationDays, returnDate: nextReturnDate }) => ({
+      departDate: nextDepartDate,
+      durationDays,
+      returnDate: nextReturnDate
+    }));
 }
 
 function buildAlternateReturnCityDatePairs(runRow, pass1Snapshot, limit) {
@@ -5216,6 +5447,42 @@ try {
         1,
         Number(expansionPayload.candidateTargetLimit ?? 4)
       );
+      const expansionHistory = readReturnOptionExpansionHistory(db, runRow.session_id, runId);
+      const hasRepeatedZeroYieldHistory =
+        Number(expansionHistory.completedExecutions ?? 0) >= 2 &&
+        Number(expansionHistory.totalCandidates ?? 0) <= 0;
+
+      if (hasRepeatedZeroYieldHistory) {
+        insertRunAnalysisSnapshot(db, {
+          analysisType: "baseline_return_option_expansion",
+          searchRunId: runRow.id,
+          strategyExecutionId: strategy.id,
+          summary: {
+            analysedAt: nowIso(),
+            analysisType: "baseline_return_option_expansion",
+            completedExecutionsBeforeRun: Number(expansionHistory.completedExecutions ?? 0),
+            expandedCandidateCount: 0,
+            expandedFamilyCount: 0,
+            expandedQueryCount: 0,
+            familyResults: [],
+            plannedTargetCount: 0,
+            skipReason:
+              "Skipped because this session has already completed repeated return-option expansion passes without producing any candidates."
+          }
+        });
+
+        updateStrategyStatus(db, strategy.id, {
+          actual_search_cost: 0,
+          best_candidate_id: null,
+          candidate_count: 0,
+          failure_reason: null,
+          finished_at: nowIso(),
+          status: "skipped",
+          verified_candidate_count: 0
+        });
+        continue;
+      }
+
       const expansionTargets = buildBaselineReturnExpansionTargetQueue(
         selectBaselineExpansionCandidates(db, baselineStrategy.id),
         candidateTargetLimit,
@@ -5380,7 +5647,8 @@ try {
       const baselineSourceStrategyIds = collectStrategyIdsByTypeBeforePriority(
         strategies,
         strategy.priority,
-        ["packaged_direct_sweep", "packaged_return_option_expansion"]
+        ["packaged_direct_sweep", "packaged_return_option_expansion"],
+        { requireCandidates: true }
       );
       latestAnalysisSnapshot = analyzeDirectSweep(
         db,
@@ -6530,6 +6798,306 @@ try {
         status: comparedCities.length > 0 ? "completed" : "skipped",
         verified_candidate_count: comparedCities.filter((entry) => entry.candidateCount > 0).length
       });
+    } else if (strategy.strategy_type === "recommendation_date_coverage_probe") {
+      updateStrategyStatus(db, strategy.id, {
+        actual_search_cost: 0,
+        failure_reason: null,
+        finished_at: null,
+        started_at: nowIso(),
+        status: "running"
+      });
+
+      const coveragePayload = parseStrategyPayload(
+        strategy.strategy_payload_json ?? strategy.strategyPayloadJson ?? "{}"
+      );
+      const candidateReviewLimit = Math.max(
+        1,
+        Number(coveragePayload.candidateReviewLimit ?? 12)
+      );
+      const routeTargetLimit = Math.max(1, Number(coveragePayload.routeTargetLimit ?? 3));
+      const dateVariationLimit = Math.max(1, Number(coveragePayload.dateVariationLimit ?? 3));
+      const coverageSourceStrategyIds = collectStrategyIdsByTypeBeforePriority(
+        strategies,
+        strategy.priority,
+        [
+          "packaged_direct_sweep",
+          "packaged_return_option_expansion",
+          "packaged_departure_anchor_followup",
+          "packaged_stopover_followup",
+          "anchored_multi_city_probe",
+          "multi_city_long_stop_followup",
+          "alternate_return_city_probe"
+        ],
+        { requireCandidates: true }
+      );
+      const coverageTargetsSummary = buildRecommendationDateCoverageTargets({
+        candidateReviewLimit,
+        db,
+        routeTargetLimit,
+        runSeed: `${runId}:${strategy.id}:coverage`,
+        strategyIds:
+          coverageSourceStrategyIds.length > 0 ? coverageSourceStrategyIds : [baselineStrategy.id]
+      });
+      const coverageCandidates = [];
+      const coverageFailures = [];
+      const coverageRouteResults = [];
+      let executedCoverageQueryCount = 0;
+
+      for (const routeTarget of coverageTargetsSummary.routeTargets) {
+        const routeResult = {
+          candidateCount: 0,
+          candidateFamilyId: routeTarget.candidateFamilyId,
+          currentVariantCount: routeTarget.currentVariantCount,
+          departDate: routeTarget.departDate,
+          destinationCityCode: routeTarget.destinationCityCode,
+          displayedAmount: routeTarget.displayedAmount,
+          familyKey: routeTarget.familyKey,
+          failureCount: 0,
+          queries: [],
+          returnDate: routeTarget.returnDate,
+          selectionReasons: routeTarget.selectionReasons ?? [],
+          stopoverCityCode: routeTarget.stopoverCityCode ?? null,
+          stopoverDepartDate: routeTarget.stopoverDepartDate ?? null,
+          targetType: routeTarget.targetType
+        };
+
+        if (routeTarget.targetType === "anchored_multi_city") {
+          const stopoverDateVariations = enumerateAnchoredMultiCityStopDates({
+            departDate: routeTarget.departDate,
+            limit: dateVariationLimit + 1,
+            maxStopDays: runRow.stop_duration_max_days,
+            minStopDays: runRow.stop_duration_min_days,
+            returnDate: routeTarget.returnDate,
+            runSeed: `${runId}:${strategy.id}:${routeTarget.familyKey}:stopover`
+          }).filter((dateValue) => dateValue !== routeTarget.stopoverDepartDate);
+
+          if (stopoverDateVariations.length === 0) {
+            routeResult.queries.push({
+              candidateCount: 0,
+              reason:
+                "No alternate anchored stopover dates were available inside the current stop window for this route.",
+              status: "skipped"
+            });
+            coverageRouteResults.push(routeResult);
+            continue;
+          }
+
+          for (const stopoverDepartDate of stopoverDateVariations) {
+            const queryExecution = insertQueryExecution(db, {
+              parentQueryExecutionId: null,
+              priority: executedCoverageQueryCount,
+              queryInput: {
+                candidateFamilyId: routeTarget.candidateFamilyId,
+                coverageTargetType: routeTarget.targetType,
+                dateVariationLimit,
+                departDate: routeTarget.departDate,
+                destinationCityCode: routeTarget.destinationCityCode,
+                familyKey: routeTarget.familyKey,
+                finalReturnAirport: runRow.return_destination_airport,
+                returnDate: routeTarget.returnDate,
+                stopoverCityCode: routeTarget.stopoverCityCode,
+                stopoverCityName: routeTarget.stopoverCityName ?? null,
+                stopoverDepartDate
+              },
+              queryType: "anchored_multi_city",
+              reason: `Recommendation date coverage probe for ${routeTarget.familyKey} using anchored stopover ${routeTarget.stopoverCityCode ?? "unknown"} on ${stopoverDepartDate}.`,
+              searchRunId: runId,
+              source: "derived_from_result",
+              strategyExecutionId: strategy.id
+            });
+
+            try {
+              const created = await executeAnchoredMultiCityQuery({
+                artifactRecords,
+                context,
+                db,
+                queryExecutionId: queryExecution.id,
+                queryInput: {
+                  departDate: routeTarget.departDate,
+                  destinationCityCode: routeTarget.destinationCityCode,
+                  finalReturnAirport: runRow.return_destination_airport,
+                  returnDate: routeTarget.returnDate,
+                  segmentOptionLimit: 1,
+                  stopoverCityCode: routeTarget.stopoverCityCode,
+                  stopoverDepartDate
+                },
+                queryPriority: executedCoverageQueryCount,
+                runDir,
+                runId,
+                runRow,
+                strategy
+              });
+
+              coverageCandidates.push(...created);
+              baseCandidates.push(...created);
+              routeResult.candidateCount += created.length;
+              routeResult.queries.push({
+                candidateCount: created.length,
+                status: created.length > 0 ? "completed" : "skipped",
+                stopoverDepartDate
+              });
+            } catch (queryError) {
+              const message =
+                queryError instanceof Error ? queryError.message : "Recommendation date coverage query failed.";
+              failQueryExecution(db, queryExecution.id, message);
+              coverageFailures.push(
+                `${routeTarget.familyKey}@${stopoverDepartDate}: ${message}`
+              );
+              routeResult.failureCount += 1;
+              routeResult.queries.push({
+                candidateCount: 0,
+                reason: message,
+                status: "failed",
+                stopoverDepartDate
+              });
+            }
+
+            executedCoverageQueryCount += 1;
+          }
+        } else {
+          const coverageDatePairs = enumerateRecommendationCoverageDatePairs({
+            departDate: routeTarget.departDate,
+            limit: dateVariationLimit,
+            returnDate: routeTarget.returnDate,
+            runRow,
+            runSeed: `${runId}:${strategy.id}:${routeTarget.familyKey}:pair`
+          });
+
+          if (coverageDatePairs.length === 0) {
+            routeResult.queries.push({
+              candidateCount: 0,
+              reason: "No nearby date pairs were available inside the current session window for this route.",
+              status: "skipped"
+            });
+            coverageRouteResults.push(routeResult);
+            continue;
+          }
+
+          for (const pair of coverageDatePairs) {
+            const queryExecution = insertQueryExecution(db, {
+              parentQueryExecutionId: null,
+              priority: executedCoverageQueryCount,
+              queryInput: {
+                candidateFamilyId: routeTarget.candidateFamilyId,
+                coverageTargetType: routeTarget.targetType,
+                dateVariationLimit,
+                departDate: pair.departDate,
+                destinationCityCode: routeTarget.destinationCityCode,
+                familyKey: routeTarget.familyKey,
+                returnDate: pair.returnDate
+              },
+              queryType: "direct_round_trip",
+              reason: `Recommendation date coverage probe for ${routeTarget.familyKey} using nearby pair ${pair.departDate} to ${pair.returnDate}.`,
+              searchRunId: runId,
+              source: "derived_from_result",
+              strategyExecutionId: strategy.id
+            });
+
+            try {
+              const result = await executeDirectQuery({
+                artifactRecords,
+                context,
+                db,
+                queryExecutionId: queryExecution.id,
+                queryInput: {
+                  departDate: pair.departDate,
+                  destinationCityCode: routeTarget.destinationCityCode,
+                  returnDate: pair.returnDate
+                },
+                queryPriority: executedCoverageQueryCount,
+                runDir,
+                runId,
+                runRow,
+                strategy
+              });
+
+              coverageCandidates.push(...result.createdCandidates);
+              baseCandidates.push(...result.createdCandidates);
+              routeResult.candidateCount += result.createdCandidates.length;
+              routeResult.queries.push({
+                candidateCount: result.createdCandidates.length,
+                departDate: pair.departDate,
+                returnDate: pair.returnDate,
+                status: result.createdCandidates.length > 0 ? "completed" : "skipped"
+              });
+            } catch (queryError) {
+              const message =
+                queryError instanceof Error ? queryError.message : "Recommendation date coverage query failed.";
+              failQueryExecution(db, queryExecution.id, message);
+              coverageFailures.push(
+                `${routeTarget.familyKey}@${pair.departDate}__${pair.returnDate}: ${message}`
+              );
+              routeResult.failureCount += 1;
+              routeResult.queries.push({
+                candidateCount: 0,
+                departDate: pair.departDate,
+                reason: message,
+                returnDate: pair.returnDate,
+                status: "failed"
+              });
+            }
+
+            executedCoverageQueryCount += 1;
+          }
+        }
+
+        coverageRouteResults.push(routeResult);
+      }
+
+      insertRunAnalysisSnapshot(db, {
+        analysisType: "recommendation_date_coverage_results",
+        searchRunId: runRow.id,
+        strategyExecutionId: strategy.id,
+        summary: {
+          analysedAt: nowIso(),
+          analysisType: "recommendation_date_coverage_results",
+          candidateReviewLimit,
+          dateVariationLimit,
+          reviewedRouteCount: coverageTargetsSummary.reviewedRouteCount,
+          reviewedVariantCount: coverageTargetsSummary.reviewedVariantCount,
+          routeTargetCount: coverageTargetsSummary.routeTargets.length,
+          routeTargetLimit,
+          routeTargets: coverageTargetsSummary.routeTargets.map((target) => ({
+            candidateFamilyId: target.candidateFamilyId,
+            currentVariantCount: target.currentVariantCount,
+            departDate: target.departDate,
+            destinationCityCode: target.destinationCityCode,
+            displayedAmount: target.displayedAmount,
+            familyKey: target.familyKey,
+            returnDate: target.returnDate,
+            selectionReasons: target.selectionReasons ?? [],
+            stopoverCityCode: target.stopoverCityCode ?? null,
+            stopoverCityName: target.stopoverCityName ?? null,
+            stopoverDepartDate: target.stopoverDepartDate ?? null,
+            targetType: target.targetType
+          })),
+          routeResults: coverageRouteResults,
+          totalCreatedCandidateCount: coverageCandidates.length
+        }
+      });
+
+      const coverageStatus =
+        coverageTargetsSummary.routeTargets.length === 0
+          ? "skipped"
+          : coverageCandidates.length > 0
+            ? "completed"
+            : coverageFailures.length > 0
+              ? "failed"
+              : "skipped";
+      updateStrategyStatus(db, strategy.id, {
+        actual_search_cost: executedCoverageQueryCount,
+        best_candidate_id:
+          [...coverageCandidates].sort((left, right) => left.displayedAmount - right.displayedAmount)[0]
+            ?.id ?? null,
+        candidate_count: coverageCandidates.length,
+        failure_reason:
+          coverageStatus === "failed" && coverageFailures.length > 0
+            ? coverageFailures.join(" | ")
+            : null,
+        finished_at: nowIso(),
+        status: coverageStatus,
+        verified_candidate_count: coverageRouteResults.filter((entry) => entry.candidateCount > 0).length
+      });
     } else if (strategy.strategy_type === "stitched_followup") {
       deriveStitchedCandidates(db, runRow, strategy, baseCandidates);
     }
@@ -6546,6 +7114,13 @@ try {
     shouldDispatchQueue = true;
     throw EARLY_EXIT;
   }
+
+  insertRunAnalysisSnapshot(db, {
+    analysisType: "strategy_outcome_telemetry",
+    searchRunId: runRow.id,
+    strategyExecutionId: baselineStrategy.id,
+    summary: buildStrategyOutcomeTelemetry(db, runRow.id)
+  });
 
   insertArtifacts(db, runId, baselineStrategy.id, nowIso(), artifactRecords);
   finalizeRunSuccess(db, runRow, isResume);

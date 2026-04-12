@@ -237,6 +237,23 @@ export function listSessionStrategySelections(sessionId: string, session?: Sessi
         };
       }
 
+      if (defaultSelection.strategyKey === "recommendation_date_coverage") {
+        const definition = getSearchStrategyBundleDefinition("recommendation_date_coverage");
+        const config = normalizeStrategyBundleConfig(
+          "recommendation_date_coverage",
+          persisted ? safeJsonParse(persisted.configJson) : defaultSelection.config,
+          resolvedSession
+        );
+
+        return {
+          ...defaultSelection,
+          compatibility: definition.getCompatibility(resolvedSession, config),
+          config,
+          enabled: persisted ? persisted.enabled : defaultSelection.enabled,
+          priority: persisted?.priority ?? defaultSelection.priority
+        };
+      }
+
       const definition = getSearchStrategyBundleDefinition("stitched_value_probe");
       const config = normalizeStrategyBundleConfig(
         "stitched_value_probe",
@@ -446,6 +463,28 @@ export function parseStrategySelectionInputsFromFormData(formData: FormData) {
       } satisfies StrategySelectionInput;
     }
 
+    if (definition.key === "recommendation_date_coverage") {
+      return {
+        config: {
+          candidateReviewLimitOverride: parseNullableIntegerFormValue(
+            formData,
+            "recommendation_date_coverage__candidateReviewLimitOverride"
+          ),
+          dateVariationLimitOverride: parseNullableIntegerFormValue(
+            formData,
+            "recommendation_date_coverage__dateVariationLimitOverride"
+          ),
+          routeTargetLimitOverride: parseNullableIntegerFormValue(
+            formData,
+            "recommendation_date_coverage__routeTargetLimitOverride"
+          )
+        },
+        enabled: parseBooleanFormValue(formData, "recommendation_date_coverage__enabled"),
+        priority: definition.defaultPriority,
+        strategyKey: definition.key
+      } satisfies StrategySelectionInput;
+    }
+
     return {
       config: {
         discountRateOverride: parseNullableNumberFormValue(
@@ -564,6 +603,26 @@ export function saveSessionStrategySelections(sessionId: string, inputs: Strateg
     if (definition.key === "alternate_return_city_exploration") {
       const config = normalizeStrategyBundleConfig(
         "alternate_return_city_exploration",
+        input?.config ?? defaultSelection?.config ?? {},
+        session
+      );
+      const compatibility = definition.getCompatibility(session, config);
+
+      return {
+        configJson: JSON.stringify(config),
+        createdAt: timestamp,
+        enabled: compatibility.isCompatible && (input?.enabled ?? defaultSelection?.enabled ?? false),
+        id: createId("session_strategy"),
+        priority: input?.priority ?? defaultSelection?.priority ?? definition.defaultPriority,
+        sessionId,
+        strategyKey: definition.key,
+        updatedAt: timestamp
+      };
+    }
+
+    if (definition.key === "recommendation_date_coverage") {
+      const config = normalizeStrategyBundleConfig(
+        "recommendation_date_coverage",
         input?.config ?? defaultSelection?.config ?? {},
         session
       );

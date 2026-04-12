@@ -1,7 +1,11 @@
 "use client";
 
-import { useId, useState, type FormEvent, type FocusEvent } from "react";
+import { useEffect, useId, useRef, useState, type FormEvent, type FocusEvent } from "react";
 
+import {
+  serializeTrackedFormData,
+  useOptionalSessionStickyActions
+} from "@/components/sessions/session-sticky-actions";
 import { bookingModes, searchIntensities } from "@/lib/db/schema/session";
 import {
   getDefaultRefreshIntervalHours,
@@ -38,10 +42,13 @@ type SessionFormProps = {
     sessionId?: string;
     stopDurationMaxDays?: number;
     stopDurationMinDays?: number;
+    returnTo?: string;
   };
   formError?: string | null;
+  formId?: string;
   secondaryAction?: (formData: FormData) => void | Promise<void>;
   secondaryLabel?: string;
+  showSavedState?: boolean;
   submitLabel: string;
 };
 
@@ -108,14 +115,25 @@ export function SessionForm({
   action,
   defaults,
   formError,
+  formId,
   secondaryAction,
   secondaryLabel,
+  showSavedState = false,
   submitLabel
 }: SessionFormProps) {
   const airportListId = useId();
   const cityListId = useId();
+  const formRef = useRef<HTMLFormElement | null>(null);
+  const initialFormSnapshotRef = useRef<string | null>(null);
   const refreshIntervalBounds = getRefreshIntervalBounds();
+  const stickyActions = useOptionalSessionStickyActions();
+  const registerStickyAction = stickyActions?.registerStickyAction;
+  const setStickyActionDirty = stickyActions?.setStickyActionDirty;
+  const setStickyActionSubmitting = stickyActions?.setStickyActionSubmitting;
+  const showStickyActionSaved = stickyActions?.showStickyActionSaved;
+  const unregisterStickyAction = stickyActions?.unregisterStickyAction;
   const [errors, setErrors] = useState<FieldErrors>({});
+  const stickyOwnerId = useId();
   const [returnOriginMode, setReturnOriginMode] = useState(
     defaults?.returnOriginMode ?? "any_mainland_city"
   );
@@ -130,6 +148,67 @@ export function SessionForm({
     departureStartDate && durationMinDays
       ? addDaysToIsoDate(departureStartDate, Math.max(Number(durationMinDays) || 0, 0))
       : departureStartDate;
+
+  useEffect(() => {
+    if (
+      !registerStickyAction ||
+      !setStickyActionDirty ||
+      !setStickyActionSubmitting ||
+      !showStickyActionSaved ||
+      !unregisterStickyAction ||
+      !formId ||
+      !formRef.current
+    ) {
+      return;
+    }
+
+    registerStickyAction({
+      formId,
+      label: submitLabel,
+      ownerId: stickyOwnerId
+    });
+    initialFormSnapshotRef.current = serializeTrackedFormData(formRef.current);
+    setStickyActionDirty(formId, false);
+    setStickyActionSubmitting(formId, false);
+    if (showSavedState && !formError) {
+      showStickyActionSaved(formId);
+      const url = new URL(window.location.href);
+      if (url.searchParams.has("saved")) {
+        url.searchParams.delete("saved");
+        window.history.replaceState(
+          window.history.state,
+          "",
+          `${url.pathname}${url.search}${url.hash}`
+        );
+      }
+    }
+
+    return () => {
+      unregisterStickyAction(formId, stickyOwnerId);
+    };
+  }, [
+    formError,
+    formId,
+    registerStickyAction,
+    showSavedState,
+    showStickyActionSaved,
+    setStickyActionDirty,
+    setStickyActionSubmitting,
+    stickyOwnerId,
+    submitLabel,
+    unregisterStickyAction
+  ]);
+
+  function syncStickyDirtyState() {
+    if (!setStickyActionDirty || !formId || !formRef.current || !initialFormSnapshotRef.current) {
+      return;
+    }
+
+    setStickyActionDirty(
+      formId,
+      serializeTrackedFormData(formRef.current) !== initialFormSnapshotRef.current
+    );
+  }
 
   function normalizeField(field: HTMLInputElement | HTMLTextAreaElement) {
     const { name, value } = field;
@@ -288,14 +367,30 @@ export function SessionForm({
     if (Object.keys(nextErrors).length > 0) {
       event.preventDefault();
       setErrors(nextErrors);
+      if (setStickyActionSubmitting && formId) {
+        setStickyActionSubmitting(formId, false);
+      }
     } else {
       setErrors({});
+      if (setStickyActionSubmitting && formId) {
+        setStickyActionSubmitting(formId, true);
+      }
     }
   }
 
   return (
-    <form action={action} onSubmit={handleSubmit} className="space-y-8 rounded-[28px] border border-line bg-white p-8 shadow-sm">
+    <form
+      ref={formRef}
+      id={formId}
+      action={action}
+      onSubmit={handleSubmit}
+      onInput={syncStickyDirtyState}
+      onChange={syncStickyDirtyState}
+      onBlurCapture={syncStickyDirtyState}
+      className="space-y-8 rounded-[28px] border border-line bg-white p-8 shadow-sm"
+    >
       {defaults?.sessionId ? <input type="hidden" name="sessionId" value={defaults.sessionId} /> : null}
+      {defaults?.returnTo ? <input type="hidden" name="returnTo" value={defaults.returnTo} /> : null}
 
       {formError ? (
         <section className="rounded-[24px] border border-rose-200 bg-rose-50 px-5 py-4">
@@ -511,17 +606,18 @@ export function SessionForm({
             defaultValue={defaults?.returnOriginMode ?? "any_mainland_city"}
             onChange={(event) => {
               const nextMode = event.currentTarget.value;
+              const returnOriginCityValue = String(
+                (
+                  event.currentTarget.form?.elements.namedItem(
+                    "returnOriginCity"
+                  ) as HTMLInputElement | null
+                )?.value ?? ""
+              );
               setReturnOriginMode(nextMode);
               setErrors((current) => ({
                 ...current,
-                returnOriginCity: validateField(
-                  "returnOriginCity",
-                  String(
-                    (event.currentTarget.form?.elements.namedItem("returnOriginCity") as HTMLInputElement | null)
-                      ?.value ?? ""
-                  ),
-                  nextMode
-                ) ?? ""
+                returnOriginCity:
+                  validateField("returnOriginCity", returnOriginCityValue, nextMode) ?? ""
               }));
             }}
             className={inputClass()}

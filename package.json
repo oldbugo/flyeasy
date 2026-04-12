@@ -19,6 +19,7 @@
     "proof:packaged-search": "node scripts/proofs/packaged-search-extraction.mjs",
     "proof:deep-verification": "node scripts/proofs/deep-verification-boundary.mjs",
     "proof:recovery-resume": "node scripts/proofs/recovery-resume.mjs",
+    "proof:ui-workflow-sweep": "node scripts/proofs/ui-workflow-sweep.mjs",
     "locations:sync-tripcom": "node scripts/locations/sync-tripcom-location-catalog.mjs",
     "tripcom:check": "node scripts/automation/check-connection.mjs",
     "tripcom:baseline-run": "node scripts/automation/run-baseline-search.mjs"
@@ -26,6 +27,7 @@
   "dependencies": {
     "@phosphor-icons/react": "^2.1.10",
     "better-sqlite3": "^11.0.0",
+    "chart.js": "^4.5.1",
     "drizzle-orm": "^0.33.0",
     "electron": "^41.0.2",
     "next": "^16.1.6",

@@ -1,180 +1,341 @@
-import Link from "next/link";
+import type { CSSProperties, ReactNode } from "react";
 
 import {
-  archiveOrRestoreSessionAction,
-  duplicateSessionAction,
   stopAndClearSessionQueueAction,
-  stopCurrentSessionRunAction,
-  toggleMonitoringSessionAction
+  stopCurrentSessionRunAction
 } from "@/app/sessions/actions";
+import { SessionCurrentPathInput } from "@/components/sessions/session-current-path-input";
+import { SessionPaneNavigationViewport } from "@/components/sessions/session-navigation-feedback";
+import { SessionStickyControlBar } from "@/components/sessions/session-sticky-control-bar";
+import { SessionStickyActionsProvider } from "@/components/sessions/session-sticky-actions";
 import {
   Panel,
   StatBadge,
-  getButtonClassName
+  cn,
+  getButtonClassName,
+  getPillClassName
 } from "@/components/shared/ui";
+import { formatMoney } from "@/lib/formatting";
+import { resolveAirportInput, resolveCityInput } from "@/lib/locations/catalog";
 
-type SessionRouteShellProps = {
-  badges?: Array<{
-    label: string;
-    value: string;
-  }>;
+type SessionWorkspaceShellProps = {
   activeRun?: {
     id: string;
     status: string;
   } | null;
   activeRunCount?: number;
-  children?: React.ReactNode;
-  currentTab: "overview" | "settings" | "strategy" | "results" | "history";
-  description: string;
+  children: ReactNode;
+  currentBestFare?: {
+    amount: number;
+    currency: string;
+  } | null;
   isArchived?: boolean;
+  isLive?: boolean;
   monitoringEnabled?: boolean;
-  returnTo?: string;
   resultsIsRunning?: boolean;
   sessionId: string;
   sessionName: string;
+  sessionTripSummary?: {
+    departureStartDate: string;
+    durationMaxDays: number | null;
+    durationMinDays: number | null;
+    originAirport: string;
+    outboundDestinationCity: string;
+    returnDestinationAirport: string;
+    returnEndDate: string | null;
+  } | null;
+};
+
+type SessionPageHeaderProps = {
+  badges?: Array<{
+    label: string;
+    value: ReactNode;
+  }>;
+  description: string;
+  eyebrow?: string;
   title: string;
 };
 
-const sessionTabs = [
-  { id: "overview", label: "Overview", suffix: "" },
-  { id: "results", label: "Results", suffix: "/results" },
-  { id: "settings", label: "Trip settings", suffix: "/settings" },
-  { id: "strategy", label: "Search strategy", suffix: "/strategy" },
-  { id: "history", label: "History", suffix: "/history" }
-] as const;
+function formatHeaderSettingDate(value: string | null) {
+  if (!value) {
+    return null;
+  }
 
-export function SessionRouteShell({
+  return new Intl.DateTimeFormat("en-AU", {
+    day: "numeric",
+    month: "short",
+    weekday: "short"
+  }).format(new Date(value));
+}
+
+function formatDurationRange(minDays: number | null, maxDays: number | null) {
+  if (typeof minDays === "number" && typeof maxDays === "number") {
+    return minDays === maxDays ? `${minDays} days` : `${minDays}–${maxDays} days`;
+  }
+
+  if (typeof minDays === "number") {
+    return `${minDays}+ days`;
+  }
+
+  if (typeof maxDays === "number") {
+    return `Up to ${maxDays} days`;
+  }
+
+  return "Flexible stay";
+}
+
+function buildHeaderTripSummary(
+  tripSummary: NonNullable<SessionWorkspaceShellProps["sessionTripSummary"]>
+) {
+  const originCode = resolveAirportInput(tripSummary.originAirport)?.code ?? tripSummary.originAirport;
+  const destinationCode =
+    resolveCityInput(tripSummary.outboundDestinationCity)?.code ?? tripSummary.outboundDestinationCity;
+  const returnCode =
+    resolveAirportInput(tripSummary.returnDestinationAirport)?.code ??
+    tripSummary.returnDestinationAirport;
+
+  return {
+    departureLabel: formatHeaderSettingDate(tripSummary.departureStartDate) ?? "Date pending",
+    destinationCode,
+    durationLabel: formatDurationRange(
+      tripSummary.durationMinDays,
+      tripSummary.durationMaxDays
+    ),
+    originCode,
+    returnCode,
+    returnLabel: formatHeaderSettingDate(tripSummary.returnEndDate) ?? "Date pending"
+  };
+}
+
+function HeaderTripConnector() {
+  return <span aria-hidden className="mt-4 h-px w-5 shrink-0 bg-slate-300 sm:w-7" />;
+}
+
+function HeaderTripBadge({
+  centered = false,
+  code,
+  detail
+}: {
+  centered?: boolean;
+  code: string;
+  detail: string;
+}) {
+  return (
+    <div className={cn("flex min-w-0 flex-col items-start gap-1", centered && "items-center")}>
+      <span className="rounded-full border border-slate-300 bg-white/80 px-3 py-1.5 text-sm font-semibold uppercase tracking-[0.16em] text-ink shadow-[inset_0_1px_0_rgba(255,255,255,0.85)]">
+        {code}
+      </span>
+      <span
+        className={cn(
+          "text-xs font-medium text-slate-500",
+          centered ? "text-center" : "text-left"
+        )}
+      >
+        {detail}
+      </span>
+    </div>
+  );
+}
+
+export function SessionWorkspaceShell({
   activeRun = null,
   activeRunCount = 0,
-  badges = [],
   children,
-  currentTab,
-  description,
+  currentBestFare = null,
   isArchived = false,
-  monitoringEnabled = false,
-  returnTo,
+  isLive = false,
   resultsIsRunning = false,
   sessionId,
   sessionName,
-  title
-}: SessionRouteShellProps) {
-  const resolvedReturnTo = returnTo ?? `/sessions/${sessionId}`;
+  sessionTripSummary = null
+}: SessionWorkspaceShellProps) {
   const showClearAllRunsButton = activeRunCount > 1;
+  const hasCurrentBestFare =
+    typeof currentBestFare?.amount === "number" && Boolean(currentBestFare?.currency);
+  const bestFareLabel = formatMoney(currentBestFare?.currency ?? null, currentBestFare?.amount ?? null);
+  const bestFareAmountLabel =
+    hasCurrentBestFare && currentBestFare
+      ? currentBestFare.amount.toLocaleString("en-AU", {
+          maximumFractionDigits: 0
+        })
+      : null;
+  const bestFareCurrencyLabel = hasCurrentBestFare ? currentBestFare?.currency ?? null : null;
+  const tripSummary = sessionTripSummary
+    ? buildHeaderTripSummary(sessionTripSummary)
+    : null;
+  const titleSizingStyle = {
+    ["--session-title-size" as string]: "clamp(2.25rem, 4vw, 4rem)"
+  } satisfies CSSProperties;
 
   return (
-    <div className="space-y-8">
-      <Panel className="p-8">
-        <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_auto] xl:items-start">
-          <div className="max-w-3xl">
-            <p className="text-xs font-semibold uppercase tracking-[0.22em] text-sea">
-              Session workspace
-            </p>
-            <h1 className="mt-3 text-3xl font-semibold tracking-tight text-ink">
-              {title}
-            </h1>
-            <p className="mt-2 text-lg font-medium text-slate-700">{sessionName}</p>
-            <p className="mt-3 text-base leading-7 text-slate-600">{description}</p>
-            <div className="mt-6 flex flex-wrap gap-3">
-              {activeRun ? (
-                <form action={stopCurrentSessionRunAction}>
-                  <input type="hidden" name="sessionId" value={sessionId} />
-                  <input type="hidden" name="returnTo" value={resolvedReturnTo} />
-                  <button
-                    type="submit"
-                    className={getButtonClassName({ size: "sm", tone: "danger" })}
-                  >
-                    Stop current run
-                  </button>
-                </form>
-              ) : null}
-              {showClearAllRunsButton ? (
-                <form action={stopAndClearSessionQueueAction}>
-                  <input type="hidden" name="sessionId" value={sessionId} />
-                  <input type="hidden" name="returnTo" value={resolvedReturnTo} />
-                  <button
-                    type="submit"
-                    className={getButtonClassName({ size: "sm", tone: "danger" })}
-                  >
-                    Stop all runs and clear queue ({activeRunCount})
-                  </button>
-                </form>
-              ) : null}
-              <form action={duplicateSessionAction}>
-                <input type="hidden" name="sessionId" value={sessionId} />
-                <button
-                  type="submit"
-                  className={getButtonClassName({ size: "sm", tone: "secondary" })}
+    <SessionStickyActionsProvider>
+      <div className="flex min-h-full flex-col gap-4">
+        <div className="px-2 py-3 md:px-3 md:py-4">
+          <div className="flex flex-col gap-2 xl:gap-1">
+            <div className="relative z-10 flex flex-col gap-3">
+              <div className="min-w-0">
+                <div
+                  className="inline-flex max-w-full flex-wrap items-start gap-3"
+                  style={titleSizingStyle}
                 >
-                  Duplicate session
-                </button>
-              </form>
-              <form action={archiveOrRestoreSessionAction}>
-                <input type="hidden" name="sessionId" value={sessionId} />
-                <input type="hidden" name="intent" value={isArchived ? "restore" : "archive"} />
-                <button
-                  type="submit"
-                  className={getButtonClassName({ size: "sm", tone: "secondary" })}
-                >
-                  {isArchived ? "Restore session" : "Archive session"}
-                </button>
-              </form>
+                  <h1
+                    className="min-w-0 font-semibold leading-[0.92] tracking-[-0.05em] text-ink"
+                    style={{ fontSize: "var(--session-title-size)" }}
+                  >
+                    {sessionName}
+                  </h1>
+                  <span
+                    aria-label={isLive ? "Session is live" : isArchived ? "Session is archived" : "Session is not live"}
+                    className={cn(
+                      "mt-[0.55em] h-3 w-3 shrink-0 rounded-full",
+                      isLive ? "bg-emerald-500" : "bg-slate-300"
+                    )}
+                    role="status"
+                  />
+                </div>
+                <div className="mt-3 flex flex-wrap items-center gap-2">
+                  {tripSummary ? (
+                    <div className="flex flex-wrap items-start gap-2 sm:gap-3">
+                      <HeaderTripBadge
+                        code={tripSummary.originCode}
+                        detail={tripSummary.departureLabel}
+                      />
+                      <HeaderTripConnector />
+                      <HeaderTripBadge
+                        centered
+                        code={tripSummary.destinationCode}
+                        detail={tripSummary.durationLabel}
+                      />
+                      <HeaderTripConnector />
+                      <HeaderTripBadge
+                        code={tripSummary.returnCode}
+                        detail={tripSummary.returnLabel}
+                      />
+                    </div>
+                  ) : (
+                    <p className="text-sm text-slate-500">No route data yet</p>
+                  )}
+                  {activeRun ? (
+                    <span className={getPillClassName("warning")}>
+                      Active run {activeRun.status}
+                    </span>
+                  ) : null}
+                </div>
+              </div>
+            </div>
+
+            <div className="relative z-0 flex flex-col gap-4 lg:-mt-8 lg:flex-row lg:items-end lg:gap-6 xl:-mt-10">
+              {activeRun || showClearAllRunsButton ? (
+                <div className="flex flex-wrap gap-3 lg:max-w-[32rem] lg:flex-none xl:max-w-[48rem]">
+                  {activeRun ? (
+                    <form action={stopCurrentSessionRunAction}>
+                      <input type="hidden" name="sessionId" value={sessionId} />
+                      <SessionCurrentPathInput fallback={`/sessions/${sessionId}`} />
+                      <button
+                        type="submit"
+                        className={getButtonClassName({ size: "sm", tone: "danger" })}
+                      >
+                        Stop current run
+                      </button>
+                    </form>
+                  ) : null}
+                  {showClearAllRunsButton ? (
+                    <form action={stopAndClearSessionQueueAction}>
+                      <input type="hidden" name="sessionId" value={sessionId} />
+                      <SessionCurrentPathInput fallback={`/sessions/${sessionId}`} />
+                      <button
+                        type="submit"
+                        className={getButtonClassName({ size: "sm", tone: "danger" })}
+                      >
+                        Stop all runs and clear queue ({activeRunCount})
+                      </button>
+                    </form>
+                  ) : null}
+                </div>
+              ) : null}
+
+              <div
+                className="pointer-events-none min-w-0 lg:ml-auto lg:flex-1 lg:-translate-y-10 lg:self-end lg:text-right xl:-translate-y-14 2xl:-translate-y-16"
+                style={{ containerType: "inline-size" }}
+              >
+                {bestFareAmountLabel && bestFareCurrencyLabel ? (
+                  <div className="flex flex-col items-start lg:items-end">
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-slate-500 lg:text-right">
+                      Current best fare
+                    </p>
+                    <div className="mt-1 flex flex-col items-start lg:items-end">
+                      <span className="pr-[0.04em] text-[clamp(0.95rem,4.8cqi,1.35rem)] font-semibold uppercase tracking-[0.22em] text-sea/75">
+                        {bestFareCurrencyLabel}
+                      </span>
+                      <span className="-mt-[0.02em] text-[clamp(10rem,56cqi,30rem)] font-semibold leading-[0.76] tracking-[-0.11em] text-sea">
+                        {bestFareAmountLabel}
+                      </span>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="flex flex-col items-start lg:items-end">
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-slate-500 lg:text-right">
+                      Current best fare
+                    </p>
+                    <div className="mt-2 text-[clamp(3rem,7vw,5rem)] font-semibold leading-[0.9] tracking-[-0.05em] text-sea lg:text-right">
+                      {bestFareLabel}
+                    </div>
+                  </div>
+                )}
+              </div>
             </div>
           </div>
-
-          {badges.length > 0 ? (
-            <div className="grid gap-3 sm:grid-cols-2 xl:min-w-[18rem] xl:grid-cols-1">
-              {badges.map((badge) => (
-                <StatBadge key={badge.label} label={badge.label} value={badge.value} />
-              ))}
-            </div>
-          ) : null}
         </div>
 
-        <div className="mt-8 flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
-          <nav className="inline-flex flex-wrap gap-3 rounded-[12px] border border-line bg-[var(--surface-subtle)] p-1.5 shadow-sm">
-            {sessionTabs.map((tab) => {
-              const isActive = tab.id === currentTab;
+        <div aria-hidden className="h-0" data-session-tab-anchor />
 
-              return (
-                <Link
-                  key={tab.id}
-                  href={`/sessions/${sessionId}${tab.suffix}` as never}
-                  className={getButtonClassName({
-                    active: isActive,
-                    size: "sm",
-                    tone: isActive ? "primary" : "secondary"
-                  })}
-                >
-                  <span>{tab.label}</span>
-                  {tab.id === "results" && resultsIsRunning ? (
-                    <span className="h-3 w-3 animate-spin rounded-full border-2 border-current/30 border-r-current" />
-                  ) : null}
-                </Link>
-              );
-            })}
-          </nav>
-          <form action={toggleMonitoringSessionAction}>
-            <input type="hidden" name="sessionId" value={sessionId} />
-            <input
-              type="hidden"
-              name="intent"
-              value={monitoringEnabled ? "disable" : "enable"}
-            />
-            <button
-              type="submit"
-              className={
-                monitoringEnabled
-                  ? "inline-flex items-center justify-center rounded-full border border-emerald-300 bg-emerald-50 px-4 py-2 text-sm font-semibold tracking-[-0.01em] text-emerald-800 transition hover:border-emerald-500 hover:bg-emerald-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-300 focus-visible:ring-offset-2"
-                  : getButtonClassName({ size: "sm", tone: "secondary" })
-              }
-            >
-              {monitoringEnabled ? "Disable monitoring" : "Enable monitoring"}
-            </button>
-          </form>
+        <SessionStickyControlBar
+          className="lg:-mt-[5.5rem] xl:-mt-[6.25rem] 2xl:-mt-[6.75rem]"
+          resultsIsRunning={resultsIsRunning}
+          sessionId={sessionId}
+        />
+
+        <div className="relative flex min-w-0 flex-col">
+          <div
+            aria-hidden
+            className="pointer-events-none absolute left-0 top-0 h-0 w-0"
+            data-session-content-start-anchor
+          />
+
+          <SessionPaneNavigationViewport sessionId={sessionId}>
+            {children}
+          </SessionPaneNavigationViewport>
         </div>
-      </Panel>
+      </div>
+    </SessionStickyActionsProvider>
+  );
+}
 
-      {children}
-    </div>
+export function SessionPageHeader({
+  badges = [],
+  description,
+  eyebrow = "Session view",
+  title
+}: SessionPageHeaderProps) {
+  return (
+    <Panel className="p-8">
+      <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_auto] xl:items-start">
+        <div className="max-w-3xl">
+          <p className="text-xs font-semibold uppercase tracking-[0.22em] text-sea">
+            {eyebrow}
+          </p>
+          <h2 className="mt-3 text-3xl font-semibold tracking-tight text-ink">{title}</h2>
+          <p className="mt-3 text-base leading-7 text-slate-600">{description}</p>
+        </div>
+
+        {badges.length > 0 ? (
+          <div className="grid gap-3 sm:grid-cols-2 xl:min-w-[18rem] xl:grid-cols-1">
+            {badges.map((badge) => (
+              <StatBadge key={badge.label} label={badge.label} value={badge.value} />
+            ))}
+          </div>
+        ) : null}
+      </div>
+    </Panel>
   );
 }

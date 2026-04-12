@@ -521,66 +521,47 @@ export function SearchOutcomeSummary({ evidence }: SearchOutcomeSummaryProps) {
     <section className="space-y-4">
       <div>
         <p className="text-xs font-semibold uppercase tracking-[0.22em] text-sea">
-          Search insight summary
+          Key signals
         </p>
         <h2 className="mt-3 text-2xl font-semibold tracking-tight text-ink">
-          Latest signals from the newest analysis snapshots
+          The clearest cues from the latest search evidence
         </h2>
-        <p className="mt-2 text-sm leading-7 text-slate-600">
-          Overview keeps this section concise. The results page carries the full detail for the
-          same evidence.
+        <p className="mt-2 max-w-3xl text-sm leading-7 text-slate-600">
+          Keep this section for the fastest read. The results page still carries the full evidence
+          breakdown when you need to inspect the reasoning in detail.
         </p>
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-2 xl:grid-cols-4">
+      <div className="grid gap-4 xl:grid-cols-3">
         <SummaryCard
           label="Cheapest departure date"
           value={bestDate ? bestDate.departDate : "Not recorded"}
           meta={bestDate ? formatCurrency(bestDate.cheapestPrice) : "Waiting for baseline evidence"}
-          detail="The strongest single departure-date signal from the latest round-trip baseline."
+          detail="Strongest date signal from the latest baseline market scan."
         />
         <SummaryCard
-          label="Cheapest airline"
-          value={bestAirline ? bestAirline.airline : "Not recorded"}
+          label="Best date and airline pair"
+          value={bestCombo ? `${bestCombo.airline} on ${bestCombo.departDate}` : "Not recorded"}
           meta={
-            bestAirline ? formatCurrency(bestAirline.cheapestPrice) : "Waiting for baseline evidence"
+            bestCombo
+              ? formatCurrency(bestCombo.cheapestPrice)
+              : bestAirline
+                ? `${bestAirline.airline} is the cheapest carrier in the latest scan`
+                : "Waiting for baseline evidence"
           }
-          detail="The cheapest outbound carrier seen in the newest baseline market scan."
+          detail="Usually the first combination worth checking because fare often depends on both date and carrier."
         />
         <SummaryCard
-          label="Best date + airline pair"
-          value={bestCombo ? `${bestCombo.departDate} | ${bestCombo.airline}` : "Not recorded"}
-          meta={bestCombo ? formatCurrency(bestCombo.cheapestPrice) : "Waiting for baseline evidence"}
-          detail="Usually the most useful summary signal, because price often depends on a specific date and carrier combination."
-        />
-        <SummaryCard
-          label={followOnSignal.meta}
+          label="Strongest follow-up clue"
           value={followOnSignal.label}
-          meta={followOnUpdatedAt ? `Updated ${formatTimestamp(followOnUpdatedAt)}` : "No follow-on evidence yet"}
+          meta={
+            followOnUpdatedAt
+              ? `${followOnSignal.meta} | updated ${formatTimestamp(followOnUpdatedAt)}`
+              : `${followOnSignal.meta} | no follow-on evidence yet`
+          }
           detail={followOnSignal.detail}
         />
       </div>
-
-      {evidence.baselineReturnOptionExpansion?.summary || evidence.baselineFollowupHandoff?.summary ? (
-        <BaselineHandoffSummary
-          expansionSummary={evidence.baselineReturnOptionExpansion?.summary}
-          handoffSummary={evidence.baselineFollowupHandoff?.summary}
-        />
-      ) : null}
-
-      {evidence.baselineExecutionEfficiency?.summary ? (
-        <DetailPanel
-          title="Baseline execution efficiency"
-          description={`Latest baseline execution snapshot recorded ${formatTimestamp(
-            evidence.baselineExecutionEfficiency.createdAt
-          )}. Use this to compare how efficiently the selected baseline spent its direct-sweep budget.`}
-        >
-          <BaselineExecutionInsights
-            showQueryOutcomes={false}
-            summary={evidence.baselineExecutionEfficiency.summary}
-          />
-        </DetailPanel>
-      ) : null}
     </section>
   );
 }

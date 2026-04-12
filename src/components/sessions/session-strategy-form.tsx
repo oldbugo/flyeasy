@@ -1,22 +1,26 @@
 import { saveSessionStrategiesAction } from "@/app/sessions/actions";
 import { InfoTooltip } from "@/components/shared/info-tooltip";
+import { SessionStickySaveTracker } from "@/components/sessions/session-sticky-actions";
 import {
   isAdaptiveCoverageMarketScanSelection,
   isAlternateReturnCityExplorationSelection,
   isAnchoredMultiCitySearchSelection,
   isMarketScanStrategySelection,
   isMultiCityVerificationSelection,
+  isRecommendationDateCoverageSelection,
   isStitchedValueProbeSelection,
   resolveAdaptiveCoverageExecutionConfig,
   resolveAlternateReturnCityExecutionConfig,
   resolveAnchoredMultiCitySearchExecutionConfig,
   resolveMarketScanExecutionConfig,
   resolveMultiCityVerificationExecutionConfig,
+  resolveRecommendationDateCoverageExecutionConfig,
   resolveStitchedValueProbeExecutionConfig,
   type SearchStrategyBundleSelection
 } from "@/lib/search-strategies/catalog";
 
 type SessionStrategyFormProps = {
+  formId?: string;
   returnTo: string;
   searchIntensity: string;
   selections: SearchStrategyBundleSelection[];
@@ -25,6 +29,7 @@ type SessionStrategyFormProps = {
   strategyExperimentSampleSize: number;
   sessionMaxStops: number;
   sessionReturnOriginMode: string;
+  showSavedState?: boolean;
 };
 
 function FieldLabel(props: { title: string; tooltip: string }) {
@@ -83,25 +88,30 @@ function PassToggle(props: {
           props.disabled ? "cursor-not-allowed" : "cursor-pointer"
         }`}
       >
-        {props.name ? (
-          <input
-            type="checkbox"
-            name={props.name}
-            value="1"
-            defaultChecked={props.defaultChecked}
-            disabled={props.disabled}
-            className="peer sr-only"
+        <span className="relative inline-flex h-6 w-11 shrink-0">
+          {props.name ? (
+            <input
+              type="checkbox"
+              name={props.name}
+              value="1"
+              defaultChecked={props.defaultChecked}
+              disabled={props.disabled}
+              className="peer absolute inset-0 m-0 h-full w-full cursor-pointer opacity-0"
+            />
+          ) : (
+            <input
+              type="checkbox"
+              checked={props.defaultChecked}
+              disabled
+              readOnly
+              className="peer absolute inset-0 m-0 h-full w-full cursor-default opacity-0"
+            />
+          )}
+          <span
+            aria-hidden
+            className="pointer-events-none relative inline-flex h-6 w-11 rounded-full bg-slate-300 transition after:absolute after:left-0.5 after:top-0.5 after:h-5 after:w-5 after:rounded-full after:bg-white after:transition-all peer-checked:bg-sea peer-checked:after:translate-x-5 peer-disabled:bg-slate-200 peer-disabled:after:bg-white/80 peer-focus-visible:outline peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-sea"
           />
-        ) : (
-          <input
-            type="checkbox"
-            checked={props.defaultChecked}
-            disabled
-            readOnly
-            className="peer sr-only"
-          />
-        )}
-        <span className="relative inline-flex h-6 w-11 rounded-full bg-slate-300 transition after:absolute after:left-0.5 after:top-0.5 after:h-5 after:w-5 after:rounded-full after:bg-white after:transition-all peer-checked:bg-sea peer-checked:after:translate-x-5 peer-disabled:bg-slate-200 peer-disabled:after:bg-white/80 peer-focus-visible:outline peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-sea" />
+        </span>
         <span className="text-sm font-semibold text-slate-700">{props.label}</span>
       </label>
     </div>
@@ -257,6 +267,7 @@ function StrategyHeader(props: {
 }
 
 export function SessionStrategyForm({
+  formId,
   returnTo,
   searchIntensity,
   selections,
@@ -264,7 +275,8 @@ export function SessionStrategyForm({
   strategyExperimentMode,
   strategyExperimentSampleSize,
   sessionMaxStops,
-  sessionReturnOriginMode
+  sessionReturnOriginMode,
+  showSavedState = false
 }: SessionStrategyFormProps) {
   const marketScanSelection = selections.find(
     (selection) => selection.strategyKey === "price_first_market_scan"
@@ -281,6 +293,9 @@ export function SessionStrategyForm({
   const alternateReturnSelection = selections.find(
     (selection) => selection.strategyKey === "alternate_return_city_exploration"
   );
+  const recommendationDateCoverageSelection = selections.find(
+    (selection) => selection.strategyKey === "recommendation_date_coverage"
+  );
   const stitchedSelection = selections.find(
     (selection) => selection.strategyKey === "stitched_value_probe"
   );
@@ -291,12 +306,14 @@ export function SessionStrategyForm({
     !multiCitySelection ||
     !anchoredMultiCitySelection ||
     !alternateReturnSelection ||
+    !recommendationDateCoverageSelection ||
     !stitchedSelection ||
     !isMarketScanStrategySelection(marketScanSelection) ||
     !isAdaptiveCoverageMarketScanSelection(adaptiveCoverageSelection) ||
     !isMultiCityVerificationSelection(multiCitySelection) ||
     !isAnchoredMultiCitySearchSelection(anchoredMultiCitySelection) ||
     !isAlternateReturnCityExplorationSelection(alternateReturnSelection) ||
+    !isRecommendationDateCoverageSelection(recommendationDateCoverageSelection) ||
     !isStitchedValueProbeSelection(stitchedSelection)
   ) {
     return null;
@@ -323,6 +340,10 @@ export function SessionStrategyForm({
     alternateReturnSelection.config
   );
   const alternateReturnIsAvailable = alternateReturnSelection.compatibility.isCompatible;
+  const recommendationDateCoverageDefaults = resolveRecommendationDateCoverageExecutionConfig(
+    { searchIntensity } as const,
+    recommendationDateCoverageSelection.config
+  );
   const stitchedDefaults = resolveStitchedValueProbeExecutionConfig(stitchedSelection.config);
   const multiCityIsAvailable = multiCitySelection.compatibility.isCompatible;
   const anchoredMultiCityIsAvailable = anchoredMultiCitySelection.compatibility.isCompatible;
@@ -358,7 +379,14 @@ export function SessionStrategyForm({
         </div>
       </div>
 
-      <form action={saveSessionStrategiesAction} className="mt-6 space-y-6">
+      <form id={formId} action={saveSessionStrategiesAction} className="mt-6 space-y-6">
+        {formId ? (
+          <SessionStickySaveTracker
+            formId={formId}
+            label="Save strategy configuration"
+            showSavedState={showSavedState}
+          />
+        ) : null}
         <input type="hidden" name="sessionId" value={sessionId} />
         <input type="hidden" name="returnTo" value={returnTo} />
 
@@ -1030,7 +1058,88 @@ export function SessionStrategyForm({
         </article>
 
         <article className="rounded-[24px] bg-mist px-6 py-6">
-          <StrategyHeader order={5} selection={stitchedSelection} stepLabel="Optional strategy" />
+          <StrategyHeader
+            order={5}
+            selection={recommendationDateCoverageSelection}
+            stepLabel="Optional strategy"
+          />
+          <p className="mt-3 text-sm leading-7 text-slate-700">
+            {recommendationDateCoverageSelection.summary}
+          </p>
+          <p className="mt-2 text-sm leading-7 text-slate-600">
+            {recommendationDateCoverageSelection.description}
+          </p>
+
+          <StrategyFlowSummary
+            expectedInputs={recommendationDateCoverageSelection.expectedInputs}
+            expectedOutputs={recommendationDateCoverageSelection.expectedOutputs}
+            focusLabel="Densify nearby date flexibility for the strongest recommendation routes after the earlier discovery and comparison clusters finish. This improves the endpoint pickers without spending baseline budget on broad new discovery."
+          />
+
+          <div className="mt-5 space-y-4">
+            <PassCard
+              badges={["Optional pass", "Late-stage densification"]}
+              detail="This pass is deliberately late in the program. It waits for the earlier discovery and comparison clusters to reveal which route families are actually worth caring about, then spends a small bounded budget filling nearby date variants so the recommendation cards have more usable local flexibility."
+              summary="Fills nearby date variants for the strongest recommendation families instead of hunting for brand-new route ideas."
+              title="Recommendation date coverage"
+              toggle={
+                <PassToggle
+                  defaultChecked={recommendationDateCoverageSelection.enabled}
+                  label="Run this strategy"
+                  name="recommendation_date_coverage__enabled"
+                />
+              }
+              tooltip="Use this when you want FlyEasy to spend some of the late-stage budget improving recommendation-card flexibility. It is a product-support pass, not another baseline or route-discovery pass."
+            >
+              <div className="rounded-[18px] border border-dashed border-line bg-white px-4 py-3 text-sm leading-7 text-slate-600">
+                Current default for this session: review{" "}
+                <span className="font-semibold text-ink">
+                  {recommendationDateCoverageDefaults.candidateReviewLimit}
+                </span>{" "}
+                promising route families, densify up to{" "}
+                <span className="font-semibold text-ink">
+                  {recommendationDateCoverageDefaults.routeTargetLimit}
+                </span>{" "}
+                of them, and probe up to{" "}
+                <span className="font-semibold text-ink">
+                  {recommendationDateCoverageDefaults.dateVariationLimit}
+                </span>{" "}
+                nearby date variation
+                {recommendationDateCoverageDefaults.dateVariationLimit === 1 ? "" : "s"} per
+                selected route.
+              </div>
+              <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+                <OverrideInput
+                  currentDefault={recommendationDateCoverageDefaults.candidateReviewLimit}
+                  description="Controls how many promising route families from earlier strategies this pass should inspect before choosing which ones deserve extra date coverage."
+                  name="recommendation_date_coverage__candidateReviewLimitOverride"
+                  title="Route families to review"
+                  tooltip="This is the size of the earlier-results handoff pool. A higher value lets the pass consider more winners before it picks which routes deserve densification."
+                  value={recommendationDateCoverageSelection.config.candidateReviewLimitOverride}
+                />
+                <OverrideInput
+                  currentDefault={recommendationDateCoverageDefaults.routeTargetLimit}
+                  description="Controls how many route families this pass should actually densify once it finishes reviewing the earlier winners."
+                  name="recommendation_date_coverage__routeTargetLimitOverride"
+                  title="Routes to densify"
+                  tooltip="Keep this small. The goal is to improve date flexibility on the strongest recommendation routes, not to re-run the whole search program."
+                  value={recommendationDateCoverageSelection.config.routeTargetLimitOverride}
+                />
+                <OverrideInput
+                  currentDefault={recommendationDateCoverageDefaults.dateVariationLimit}
+                  description="Controls how many nearby date variations to probe for each selected route family."
+                  name="recommendation_date_coverage__dateVariationLimitOverride"
+                  title="Nearby date variations"
+                  tooltip="Round-trip routes use this to probe nearby departure and return pairs. Multi-city routes use it to probe nearby anchored stopover dates."
+                  value={recommendationDateCoverageSelection.config.dateVariationLimitOverride}
+                />
+              </div>
+            </PassCard>
+          </div>
+        </article>
+
+        <article className="rounded-[24px] bg-mist px-6 py-6">
+          <StrategyHeader order={6} selection={stitchedSelection} stepLabel="Optional strategy" />
           <p className="mt-3 text-sm leading-7 text-slate-700">{stitchedSelection.summary}</p>
           <p className="mt-2 text-sm leading-7 text-slate-600">{stitchedSelection.description}</p>
 
@@ -1119,7 +1228,7 @@ export function SessionStrategyForm({
           <div className="mt-5 grid gap-4 lg:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)]">
             <div className="rounded-[20px] bg-mist px-5 py-5">
               <input type="hidden" name="strategyExperimentMode" value="off" />
-              <label className="flex items-start justify-between gap-4">
+              <div className="flex items-start justify-between gap-4">
                 <div className="space-y-2">
                   <span className="flex items-center gap-2 text-sm font-semibold text-slate-700">
                     <span>Enable queued baseline experiment mode</span>
@@ -1135,19 +1244,24 @@ export function SessionStrategyForm({
                   </p>
                 </div>
                 <label className="inline-flex cursor-pointer items-center gap-3">
-                  <input
-                    type="checkbox"
-                    name="strategyExperimentMode"
-                    value="baseline_parallel_random"
-                    defaultChecked={strategyExperimentMode === "baseline_parallel_random"}
-                    className="peer sr-only"
-                  />
-                  <span className="relative inline-flex h-6 w-11 rounded-full bg-slate-300 transition after:absolute after:left-0.5 after:top-0.5 after:h-5 after:w-5 after:rounded-full after:bg-white after:transition-all peer-checked:bg-sea peer-checked:after:translate-x-5 peer-focus-visible:outline peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-sea" />
+                  <span className="relative inline-flex h-6 w-11 shrink-0">
+                    <input
+                      type="checkbox"
+                      name="strategyExperimentMode"
+                      value="baseline_parallel_random"
+                      defaultChecked={strategyExperimentMode === "baseline_parallel_random"}
+                      className="peer absolute inset-0 m-0 h-full w-full cursor-pointer opacity-0"
+                    />
+                    <span
+                      aria-hidden
+                      className="pointer-events-none relative inline-flex h-6 w-11 rounded-full bg-slate-300 transition after:absolute after:left-0.5 after:top-0.5 after:h-5 after:w-5 after:rounded-full after:bg-white after:transition-all peer-checked:bg-sea peer-checked:after:translate-x-5 peer-focus-visible:outline peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-sea"
+                    />
+                  </span>
                   <span className="text-sm font-semibold text-slate-700">
                     {strategyExperimentMode === "baseline_parallel_random" ? "Enabled" : "Off"}
                   </span>
                 </label>
-              </label>
+              </div>
             </div>
 
             <div className="rounded-[20px] bg-mist px-5 py-5">

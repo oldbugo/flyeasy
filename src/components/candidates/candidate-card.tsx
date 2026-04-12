@@ -1,24 +1,17 @@
+import type { ReactNode } from "react";
 import Link from "next/link";
 
 import {
-  clearShortlistStatusAction,
-  setShortlistStatusAction
-} from "@/app/sessions/actions";
+  JourneyPreviewRoutes
+} from "@/components/shared/journey-preview-card";
 import {
   Panel,
   getButtonClassName,
   getPillClassName
 } from "@/components/shared/ui";
+import { buildJourneyPreviewRows } from "@/lib/journeys/route-preview";
 import {
-  formatDurationMinutes,
-  formatIsoDate,
-  formatIsoTime,
   formatMoney,
-  formatStopSummary,
-  getMinimumIntentionalStopDurationMinutes,
-  isDisplayedIntentionalStopover,
-  resolveDisplayedIntentionalStopCount,
-  resolveDisplayedStopCount
 } from "@/lib/formatting";
 
 type CandidateLegSummary = {
@@ -51,8 +44,7 @@ type CandidateCardProps = {
   isShortlisted?: boolean;
   outboundDestinationCity: string;
   riskNotes?: string | null;
-  runId: string;
-  sessionId: string;
+  secondaryAction?: ReactNode;
   stopDurationMinDays?: number | null;
   status: string;
   stopCount: number;
@@ -70,268 +62,163 @@ type CandidateCardProps = {
   variantGroupCount?: number;
 };
 
-function groupLegs(legs: CandidateLegSummary[], segmentGroup: string) {
-  return legs.filter((leg) => leg.segmentGroup === segmentGroup);
-}
-
-function LegRow({
-  label,
-  legs,
-  stopovers,
-  stopDurationMinDays
-}: {
-  label: string;
-  legs: CandidateLegSummary[];
-  stopDurationMinDays?: number | null;
-  stopovers: CandidateStopoverSummary[];
-}) {
-  if (legs.length === 0) {
-    return (
-      <div className="rounded-[20px] border border-dashed border-line bg-white/70 px-4 py-4 text-sm text-slate-500">
-        {label}: not extracted yet.
-      </div>
-    );
+function formatCompactDate(value: string | null | undefined) {
+  if (!value) {
+    return "Date pending";
   }
 
-  const firstLeg = legs[0];
-  const lastLeg = legs[legs.length - 1];
-  const carrierLabel = firstLeg.flightNumber ?? firstLeg.carrierCode ?? "Carrier pending";
-  const thresholdMinutes = getMinimumIntentionalStopDurationMinutes(stopDurationMinDays);
-  const intentionalStopovers = stopovers.filter(
-    (stopover) =>
-      stopover.durationMinutes >= thresholdMinutes &&
-      stopover.isIntentional
-  );
+  return new Intl.DateTimeFormat("en-AU", {
+    day: "numeric",
+    month: "short"
+  }).format(new Date(value));
+}
 
-  return (
-    <div className="rounded-[22px] bg-[var(--surface-subtle)] px-4 py-4">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-sea">{label}</p>
-          <p className="mt-2 text-sm font-semibold text-ink">
-            {formatIsoDate(firstLeg.departureAt)}
-          </p>
-        </div>
-        <p className="text-xs font-medium text-slate-500">
-          {legs.length > 1 ? `${legs.length} flight legs` : "Single flight leg"}
-        </p>
-      </div>
+function formatTripWindowSummary(
+  outboundDepartureAt: string | null | undefined,
+  returnDepartureAt: string | null | undefined
+) {
+  if (!outboundDepartureAt && !returnDepartureAt) {
+    return {
+      detail: "Waiting for extracted travel dates",
+      label: "Dates pending"
+    };
+  }
 
-      <div className="mt-4 grid gap-3 md:grid-cols-[1fr_auto_1fr] md:items-center">
-        <div>
-          <p className="text-2xl font-semibold tracking-tight text-ink">
-            {formatIsoTime(firstLeg.departureAt)}
-          </p>
-          <p className="mt-1 text-sm text-slate-600">{firstLeg.originAirport}</p>
-        </div>
-        <div className="text-center text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">
-          <p>{carrierLabel}</p>
-          <p className="mt-2 text-sm normal-case tracking-normal text-slate-500">
-            {intentionalStopovers.length > 0
-              ? `${firstLeg.originAirport} -> ${intentionalStopovers
-                  .map((stopover) => stopover.cityCode)
-                  .join(" -> ")} -> ${lastLeg.destinationAirport}`
-              : legs.length > 1
-                ? `via ${legs.length - 1} change${legs.length === 2 ? "" : "s"}`
-                : "direct leg"}
-          </p>
-        </div>
-        <div className="md:text-right">
-          <p className="text-2xl font-semibold tracking-tight text-ink">
-            {formatIsoTime(lastLeg.arrivalAt)}
-          </p>
-          <p className="mt-1 text-sm text-slate-600">{lastLeg.destinationAirport}</p>
-        </div>
-      </div>
+  if (!returnDepartureAt) {
+    return {
+      detail: "Return date pending",
+      label: formatCompactDate(outboundDepartureAt)
+    };
+  }
 
-      <p className="mt-3 text-sm text-slate-500">
-        {legs
-          .map((leg) => leg.flightNumber ?? leg.carrierCode ?? leg.fareBrand ?? "Trip.com fare")
-          .join(" | ")}
-      </p>
-      {intentionalStopovers.length > 0 ? (
-        <p className="mt-2 text-sm text-sea">
-          Intentional stop:{" "}
-          {intentionalStopovers
-            .map(
-              (stopover) =>
-                `${stopover.cityCode} for ${formatDurationMinutes(stopover.durationMinutes)}`
-            )
-            .join(" | ")}
-        </p>
-      ) : null}
-    </div>
-  );
+  const tripLengthDays = outboundDepartureAt
+    ? Math.max(
+        0,
+        Math.round(
+          (new Date(returnDepartureAt).getTime() - new Date(outboundDepartureAt).getTime()) /
+            (24 * 60 * 60 * 1000)
+        )
+      )
+    : null;
+
+  return {
+    detail: tripLengthDays === null ? "Round trip" : `${tripLengthDays} day trip`,
+    label: `${formatCompactDate(outboundDepartureAt)} to ${formatCompactDate(returnDepartureAt)}`
+  };
+}
+
+function humanizeLabel(value: string) {
+  return value
+    .replace(/[_-]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/\b\w/g, (match) => match.toUpperCase());
 }
 
 export function CandidateCard({
-  bookingType,
   candidateId,
   currency,
   fare,
   href,
   isCurrentBest = false,
   isShortlisted = false,
-  intentionalStopCount,
   outboundDestinationCity,
-  riskNotes,
-  runId,
-  sessionId,
-  stopDurationMinDays,
+  secondaryAction,
   status,
-  stopCount,
-  stitchedRiskLevel,
-  totalTravelMinutes,
   legs,
-  stopovers,
   variantDateRanges = [],
   variantGroupCount = 1
 }: CandidateCardProps) {
-  const returnTo = `/sessions/${sessionId}/results`;
-  const outboundLegs = groupLegs(legs, "outbound");
-  const returnLegs = groupLegs(legs, "return");
-  const displayedIntentionalStopCount = resolveDisplayedIntentionalStopCount({
-    stopDurationMinDays,
-    stopovers,
-    storedIntentionalStopCount: intentionalStopCount
+  const tripWindowSummary = formatTripWindowSummary(
+    legs.find((leg) => leg.segmentGroup === "outbound")?.departureAt ?? null,
+    legs.find((leg) => leg.segmentGroup === "return")?.departureAt ?? null
+  );
+  const routeRows = buildJourneyPreviewRows({
+    departureStartDate: legs[0]?.departureAt ?? new Date().toISOString(),
+    fallbackDestinationLabel: outboundDestinationCity,
+    legs: legs.map((leg) => ({
+      arrivalAt: leg.arrivalAt,
+      departureAt: leg.departureAt,
+      destinationAirport: leg.destinationAirport,
+      originAirport: leg.originAirport
+    })),
+    originAirport: legs[0]?.originAirport ?? "Origin"
   });
-  const displayedStopCount = resolveDisplayedStopCount({
-    extractedStopoverCount: stopovers.length,
-    intentionalStopCount: displayedIntentionalStopCount,
-    storedStopCount: stopCount
-  });
-
   return (
-    <Panel as="article" className="p-6">
-      <div className="flex flex-wrap items-start justify-between gap-4">
-        <div>
-          <div className="flex flex-wrap items-center gap-2">
-            <h2 className="text-3xl font-semibold tracking-tight text-ink">
-              {formatMoney(currency, fare)}
-            </h2>
-            {isCurrentBest ? (
-              <span className={getPillClassName("success")}>Current best</span>
-            ) : null}
-            {isShortlisted ? (
-              <span className={getPillClassName("warning")}>Shortlisted</span>
-            ) : null}
+    <Panel as="article" className="overflow-hidden">
+      <div className="px-6 pb-6 pt-6">
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div>
+            <div className="flex flex-wrap items-center gap-2">
+              <h2 className="text-3xl font-semibold tracking-tight text-ink">
+                {formatMoney(currency, fare)}
+              </h2>
+              {isCurrentBest ? (
+                <span className={getPillClassName("success")}>Current best</span>
+              ) : null}
+              {isShortlisted ? (
+                <span className={getPillClassName("warning")}>Shortlisted</span>
+              ) : null}
+            </div>
           </div>
-          <p className="mt-2 text-sm text-slate-600">
-            {outboundDestinationCity} |{" "}
-            {formatStopSummary(displayedStopCount, displayedIntentionalStopCount)}
-          </p>
-          <p className="mt-1 text-sm text-slate-500">
-            {bookingType} | {formatDurationMinutes(totalTravelMinutes ?? null)} total travel | {status}
-            {stitchedRiskLevel ? ` | ${stitchedRiskLevel} stitched risk` : ""}
-          </p>
-        </div>
-        <div className="rounded-[20px] border border-white/70 bg-[var(--surface-subtle)] px-4 py-3 text-right shadow-[inset_0_1px_0_rgba(255,255,255,0.7)]">
-          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Run</p>
-          <p className="mt-1 text-sm font-medium text-ink">{runId.slice(-8)}</p>
-        </div>
-      </div>
-
-      <div className="mt-6 space-y-4">
-        <LegRow
-          label="Outbound"
-          legs={outboundLegs}
-          stopDurationMinDays={stopDurationMinDays}
-          stopovers={stopovers.filter((stopover) =>
-            isDisplayedIntentionalStopover(stopover, stopDurationMinDays)
-          )}
-        />
-        <LegRow
-          label="Return"
-          legs={returnLegs}
-          stopDurationMinDays={stopDurationMinDays}
-          stopovers={stopovers.filter((stopover) =>
-            isDisplayedIntentionalStopover(stopover, stopDurationMinDays)
-          )}
-        />
-      </div>
-
-      {stopovers.length > 0 ? (
-        <div className="mt-5 space-y-3">
-          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
-            Stop details
-          </p>
-          <div className="flex flex-wrap gap-2">
-            {stopovers.map((stopover) => (
-              <span
-                key={stopover.id}
-                className="rounded-full border border-line px-3 py-1 text-xs font-medium text-slate-600"
-              >
-                {stopover.cityCode} ({stopover.airportCode}) {formatDurationMinutes(stopover.durationMinutes)}
-                {isDisplayedIntentionalStopover(stopover, stopDurationMinDays)
-                  ? " intentional"
-                  : " incidental"}
-              </span>
-            ))}
-          </div>
-        </div>
-      ) : null}
-
-      {variantGroupCount > 1 ? (
-        <div className="mt-5 rounded-[22px] border border-line bg-white px-4 py-4">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-sea">
-              Grouped date variants
+          <div className="rounded-[20px] border border-white/70 bg-[var(--surface-subtle)] px-4 py-3 text-right shadow-[inset_0_1px_0_rgba(255,255,255,0.7)]">
+            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
+              Trip window
             </p>
-            <p className="text-sm font-medium text-slate-600">{variantGroupCount} similar options</p>
-          </div>
-          <div className="mt-3 space-y-2">
-            {variantDateRanges.map((variant) => (
-              <p
-                key={variant.candidateId}
-                className={`text-sm ${
-                  variant.candidateId === candidateId ? "font-semibold text-ink" : "text-slate-600"
-                }`}
-              >
-                {variant.departDate ?? "Unknown"} to {variant.returnDate ?? "Unknown"}
-                {variant.days !== null ? ` | ${variant.days} days` : ""}
-              </p>
-            ))}
+            <p className="mt-1 text-sm font-medium text-ink">{tripWindowSummary.label}</p>
+            <p className="mt-1 text-xs text-slate-500">{tripWindowSummary.detail}</p>
           </div>
         </div>
-      ) : null}
 
-      <p className="mt-5 text-sm leading-7 text-slate-600">
-        {riskNotes ?? "Displayed Trip.com itinerary for manual review and booking handoff."}
-      </p>
+        <JourneyPreviewRoutes className="mt-6" routeRows={routeRows} />
 
-      <div className="mt-6 flex flex-wrap gap-3">
-        <Link
-          href={href as never}
-          className={getButtonClassName({ size: "sm", tone: "primary" })}
-        >
-          Candidate detail
-        </Link>
-        {isShortlisted ? (
-          <form action={clearShortlistStatusAction}>
-            <input type="hidden" name="candidateId" value={candidateId} />
-            <input type="hidden" name="returnTo" value={returnTo} />
-            <input type="hidden" name="sessionId" value={sessionId} />
-            <button
-              type="submit"
-              className="inline-flex items-center justify-center rounded-full border border-amber-300 bg-amber-50 px-4 py-2 text-sm font-semibold tracking-[-0.01em] text-amber-800 transition hover:border-amber-500 hover:bg-amber-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-300 focus-visible:ring-offset-2"
-            >
-              Remove shortlist
-            </button>
-          </form>
-        ) : (
-          <form action={setShortlistStatusAction}>
-            <input type="hidden" name="candidateId" value={candidateId} />
-            <input type="hidden" name="returnTo" value={returnTo} />
-            <input type="hidden" name="sessionId" value={sessionId} />
-            <input type="hidden" name="status" value="shortlisted" />
-            <button
-              type="submit"
-              className={getButtonClassName({ size: "sm", tone: "secondary" })}
-            >
-              Shortlist
-            </button>
-          </form>
-        )}
+        {variantGroupCount > 1 ? (
+          <div className="mt-5 rounded-[22px] border border-line bg-white px-4 py-4">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-sea">
+                Grouped date variants
+              </p>
+              <p className="text-sm font-medium text-slate-600">
+                {variantGroupCount} similar options
+              </p>
+            </div>
+            <div className="mt-3 space-y-2">
+              {variantDateRanges.map((variant) => (
+                <p
+                  key={variant.candidateId}
+                  className={`text-sm ${
+                    variant.candidateId === candidateId ? "font-semibold text-ink" : "text-slate-600"
+                  }`}
+                >
+                  {variant.departDate ?? "Unknown"} to {variant.returnDate ?? "Unknown"}
+                  {variant.days !== null ? ` | ${variant.days} days` : ""}
+                </p>
+              ))}
+            </div>
+          </div>
+        ) : null}
+      </div>
+
+      <div className="flex flex-col gap-4 border-t border-line/80 bg-slate-50/85 px-6 py-4 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-2">
+          <div className={`${getPillClassName("info")} px-4 py-2 text-[12px]`}>
+            {humanizeLabel(status)}
+          </div>
+          <p className="text-sm font-semibold text-slate-500">
+            {tripWindowSummary.label}
+            {tripWindowSummary.detail ? ` | ${tripWindowSummary.detail}` : ""}
+          </p>
+        </div>
+
+        <div className="flex shrink-0 flex-wrap gap-3">
+          <Link
+            href={href as never}
+            className={getButtonClassName({ size: "md", tone: "primary" })}
+          >
+            Candidate detail
+          </Link>
+          {secondaryAction}
+        </div>
       </div>
     </Panel>
   );

@@ -14,6 +14,11 @@ import {
   strategyExperimentGroups
 } from "@/lib/db/schema/run";
 import { sessions } from "@/lib/db/schema/session";
+import {
+  buildJourneyPreviewRows,
+  type JourneyPreviewRow,
+  type JourneyPreviewTone
+} from "@/lib/journeys/route-preview";
 import { resolveCityInput } from "@/lib/locations/catalog";
 import { listSessionStrategySelections } from "@/lib/search-strategies/session-strategies";
 import {
@@ -23,18 +28,9 @@ import {
   formatTripLengthDays
 } from "@/lib/time/formatting";
 
-export type SessionCardRouteTone = "default" | "info" | "success" | "warning";
+export type SessionCardRouteTone = JourneyPreviewTone;
 
-export type SessionCardRouteRow = {
-  durationLabel: string;
-  endCode: string;
-  endDateLabel: string;
-  endTone: SessionCardRouteTone;
-  startCode: string;
-  startDateLabel: string;
-  startTone: SessionCardRouteTone;
-  stayDurationLabel: string | null;
-};
+export type SessionCardRouteRow = JourneyPreviewRow;
 
 export type SessionListItem = {
   bestFare: string;
@@ -147,134 +143,6 @@ function resolveDestinationCode(cityName: string) {
 
 function formatRefreshCadence(refreshIntervalHours: number) {
   return `Full refresh every ${refreshIntervalHours} hour${refreshIntervalHours === 1 ? "" : "s"}`;
-}
-
-function formatDurationLabel(totalMinutes: number | null) {
-  if (totalMinutes === null || totalMinutes <= 0) {
-    return "Direct";
-  }
-
-  const hours = Math.floor(totalMinutes / 60);
-  const minutes = totalMinutes % 60;
-
-  if (hours === 0) {
-    return `${minutes}m`;
-  }
-
-  if (minutes === 0) {
-    return `${hours}h`;
-  }
-
-  return `${hours}h ${minutes}m`;
-}
-
-function formatLegDurationLabel(
-  departureAt: string | null | undefined,
-  arrivalAt: string | null | undefined
-) {
-  if (!departureAt || !arrivalAt) {
-    return "Direct";
-  }
-
-  const departure = new Date(departureAt);
-  const arrival = new Date(arrivalAt);
-
-  if (Number.isNaN(departure.getTime()) || Number.isNaN(arrival.getTime())) {
-    return "Direct";
-  }
-
-  const totalMinutes = Math.max(1, Math.round((arrival.getTime() - departure.getTime()) / 60_000));
-  return formatDurationLabel(totalMinutes);
-}
-
-function formatStayDurationLabel(
-  arrivalAt: string | null | undefined,
-  nextDepartureAt: string | null | undefined
-) {
-  if (!arrivalAt || !nextDepartureAt) {
-    return null;
-  }
-
-  const arrival = new Date(arrivalAt);
-  const nextDeparture = new Date(nextDepartureAt);
-
-  if (Number.isNaN(arrival.getTime()) || Number.isNaN(nextDeparture.getTime())) {
-    return null;
-  }
-
-  const totalMinutes = Math.round((nextDeparture.getTime() - arrival.getTime()) / 60_000);
-
-  if (totalMinutes <= 0) {
-    return null;
-  }
-
-  if (totalMinutes >= 1440) {
-    const days = Math.max(1, Math.round(totalMinutes / 1440));
-    return `${days} day${days === 1 ? "" : "s"}`;
-  }
-
-  return formatDurationLabel(totalMinutes);
-}
-
-function buildRouteRows(props: {
-  departureStartDate: string;
-  legs: Array<{
-    arrivalAt: string;
-    departureAt: string;
-    destinationAirport: string;
-    originAirport: string;
-  }>;
-  originAirport: string;
-  outboundDestinationCity: string;
-}) {
-  const { departureStartDate, legs, originAirport, outboundDestinationCity } = props;
-
-  if (legs.length === 0) {
-    return [
-      {
-        durationLabel: "Direct",
-        endCode: resolveDestinationCode(outboundDestinationCity),
-        endDateLabel: "Date pending",
-        endTone: "info" as const,
-        startCode: originAirport,
-        startDateLabel: formatDateChip(departureStartDate),
-        startTone: "default" as const,
-        stayDurationLabel: null
-      }
-    ];
-  }
-
-  const palette: SessionCardRouteTone[] = ["info", "success", "warning"];
-  const tones = new Map<string, SessionCardRouteTone>([[originAirport, "default"]]);
-  let paletteIndex = 0;
-
-  for (const leg of legs) {
-    for (const airportCode of [leg.originAirport, leg.destinationAirport]) {
-      if (airportCode === originAirport) {
-        tones.set(airportCode, "default");
-        continue;
-      }
-
-      if (!tones.has(airportCode)) {
-        tones.set(airportCode, palette[Math.min(paletteIndex, palette.length - 1)]);
-        paletteIndex += 1;
-      }
-    }
-  }
-
-  return legs.map((leg, index) => ({
-    durationLabel: formatLegDurationLabel(leg.departureAt, leg.arrivalAt),
-    endCode: leg.destinationAirport,
-    endDateLabel: formatDateChip(leg.arrivalAt),
-    endTone: tones.get(leg.destinationAirport) ?? "default",
-    startCode: leg.originAirport,
-    startDateLabel: formatDateChip(leg.departureAt),
-    startTone: tones.get(leg.originAirport) ?? "default",
-    stayDurationLabel: formatStayDurationLabel(
-      leg.arrivalAt,
-      legs[index + 1]?.departureAt ?? null
-    )
-  }));
 }
 
 function safeJsonParse<T>(value: string | null, fallback: T) {
@@ -792,16 +660,16 @@ export async function listSessionsForDashboard(): Promise<SessionListItem[]> {
       bestCandidateLegs.find((leg) => leg.segmentGroup === "return") ??
       bestCandidateLegs[bestCandidateLegs.length - 1];
     const statusCopy = buildStatusCopy(row, activeRun ?? null);
-    const routeRows = buildRouteRows({
+    const routeRows = buildJourneyPreviewRows({
       departureStartDate: row.departureStartDate,
+      fallbackDestinationLabel: row.outboundDestinationCity,
       legs: bestCandidateLegs.map((leg) => ({
         arrivalAt: leg.arrivalAt,
         departureAt: leg.departureAt,
         destinationAirport: leg.destinationAirport,
         originAirport: leg.originAirport
       })),
-      originAirport: row.originAirport,
-      outboundDestinationCity: row.outboundDestinationCity
+      originAirport: row.originAirport
     });
 
     return {

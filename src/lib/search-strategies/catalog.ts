@@ -10,6 +10,7 @@ export type SearchStrategyBundleKey =
   | "anchored_multi_city_search"
   | "price_first_market_scan"
   | "multi_city_verification"
+  | "recommendation_date_coverage"
   | "stitched_value_probe";
 
 export type MarketScanBundleConfig = {
@@ -49,6 +50,12 @@ export type AnchoredMultiCitySearchConfig = {
   segmentOptionLimitOverride: number | null;
 };
 
+export type RecommendationDateCoverageConfig = {
+  candidateReviewLimitOverride: number | null;
+  dateVariationLimitOverride: number | null;
+  routeTargetLimitOverride: number | null;
+};
+
 export type StitchedValueProbeConfig = {
   discountRateOverride: number | null;
   maxDerivedCandidatesOverride: number | null;
@@ -60,6 +67,7 @@ export type SearchStrategyBundleConfigByKey = {
   anchored_multi_city_search: AnchoredMultiCitySearchConfig;
   multi_city_verification: MultiCityVerificationConfig;
   price_first_market_scan: MarketScanBundleConfig;
+  recommendation_date_coverage: RecommendationDateCoverageConfig;
   stitched_value_probe: StitchedValueProbeConfig;
 };
 
@@ -88,6 +96,9 @@ export type SearchIntensityDefaults = {
   multiCitySeedContextsPerCityLimit: number;
   maxOutboundOptionsPerQuery: number;
   maxReturnOptionsPerOutbound: number;
+  recommendationDateCoverageCandidateReviewLimit: number;
+  recommendationDateCoverageDateVariationLimit: number;
+  recommendationDateCoverageRouteTargetLimit: number;
 };
 
 export type SearchStrategyBundleSelection<
@@ -113,6 +124,7 @@ export type AnySearchStrategyBundleSelection =
   | SearchStrategyBundleSelection<"anchored_multi_city_search">
   | SearchStrategyBundleSelection<"price_first_market_scan">
   | SearchStrategyBundleSelection<"multi_city_verification">
+  | SearchStrategyBundleSelection<"recommendation_date_coverage">
   | SearchStrategyBundleSelection<"stitched_value_probe">;
 
 type StrategyBundleDefinition<K extends SearchStrategyBundleKey> = {
@@ -162,6 +174,7 @@ export function isSearchStrategyBundleKey(value: string): value is SearchStrateg
     value === "anchored_multi_city_search" ||
     value === "price_first_market_scan" ||
     value === "multi_city_verification" ||
+    value === "recommendation_date_coverage" ||
     value === "stitched_value_probe"
   );
 }
@@ -189,7 +202,10 @@ export function getSearchIntensityDefaults(
         multiCityLongStopValidationMinHours: 12,
         multiCitySeedContextsPerCityLimit: 1,
         maxOutboundOptionsPerQuery: 2,
-        maxReturnOptionsPerOutbound: 2
+        maxReturnOptionsPerOutbound: 2,
+        recommendationDateCoverageCandidateReviewLimit: 8,
+        recommendationDateCoverageDateVariationLimit: 2,
+        recommendationDateCoverageRouteTargetLimit: 2
       }
     : searchIntensity === "balanced"
       ? {
@@ -211,7 +227,10 @@ export function getSearchIntensityDefaults(
           multiCityLongStopValidationMinHours: 18,
           multiCitySeedContextsPerCityLimit: 2,
           maxOutboundOptionsPerQuery: 3,
-          maxReturnOptionsPerOutbound: 3
+          maxReturnOptionsPerOutbound: 3,
+          recommendationDateCoverageCandidateReviewLimit: 12,
+          recommendationDateCoverageDateVariationLimit: 3,
+          recommendationDateCoverageRouteTargetLimit: 3
         }
       : {
           alternateReturnCandidateCityLimit: 3,
@@ -232,7 +251,10 @@ export function getSearchIntensityDefaults(
           multiCityLongStopValidationMinHours: 24,
           multiCitySeedContextsPerCityLimit: 2,
           maxOutboundOptionsPerQuery: 4,
-          maxReturnOptionsPerOutbound: 4
+          maxReturnOptionsPerOutbound: 4,
+          recommendationDateCoverageCandidateReviewLimit: 16,
+          recommendationDateCoverageDateVariationLimit: 4,
+          recommendationDateCoverageRouteTargetLimit: 4
         };
 }
 
@@ -255,7 +277,7 @@ export function normalizeStrategyBundleConfig<K extends SearchStrategyBundleKey>
       enableReturnOptionExpansion:
         typeof source.enableReturnOptionExpansion === "boolean"
           ? source.enableReturnOptionExpansion
-          : true,
+          : false,
       enableAnchoredDateFollowup:
         typeof source.enableAnchoredDateFollowup === "boolean"
           ? source.enableAnchoredDateFollowup
@@ -295,7 +317,7 @@ export function normalizeStrategyBundleConfig<K extends SearchStrategyBundleKey>
       enableReturnOptionExpansion:
         typeof source.enableReturnOptionExpansion === "boolean"
           ? source.enableReturnOptionExpansion
-          : true,
+          : false,
       enableAnchoredDateFollowup:
         typeof source.enableAnchoredDateFollowup === "boolean"
           ? source.enableAnchoredDateFollowup
@@ -359,6 +381,14 @@ export function normalizeStrategyBundleConfig<K extends SearchStrategyBundleKey>
         session.maxStops > 0 ? clampInteger(source.seedContextsPerCityLimitOverride, 1, 3) : null,
       segmentOptionLimitOverride:
         session.maxStops > 0 ? clampInteger(source.segmentOptionLimitOverride, 1, 4) : null
+    } as SearchStrategyBundleConfigByKey[K];
+  }
+
+  if (strategyKey === "recommendation_date_coverage") {
+    return {
+      candidateReviewLimitOverride: clampInteger(source.candidateReviewLimitOverride, 4, 30),
+      dateVariationLimitOverride: clampInteger(source.dateVariationLimitOverride, 1, 6),
+      routeTargetLimitOverride: clampInteger(source.routeTargetLimitOverride, 1, 8)
     } as SearchStrategyBundleConfigByKey[K];
   }
 
@@ -480,6 +510,23 @@ export function resolveMultiCityVerificationExecutionConfig(
         : 0,
     maxOutboundOptionsPerQuery: defaults.maxOutboundOptionsPerQuery,
     maxReturnOptionsPerOutbound: defaults.maxReturnOptionsPerOutbound
+  };
+}
+
+export function resolveRecommendationDateCoverageExecutionConfig(
+  session: Pick<SessionRecord, "searchIntensity">,
+  config: RecommendationDateCoverageConfig
+) {
+  const defaults = getSearchIntensityDefaults(session.searchIntensity);
+
+  return {
+    candidateReviewLimit:
+      config.candidateReviewLimitOverride ??
+      defaults.recommendationDateCoverageCandidateReviewLimit,
+    dateVariationLimit:
+      config.dateVariationLimitOverride ?? defaults.recommendationDateCoverageDateVariationLimit,
+    routeTargetLimit:
+      config.routeTargetLimitOverride ?? defaults.recommendationDateCoverageRouteTargetLimit
   };
 }
 
@@ -872,7 +919,7 @@ const alternateReturnCityExplorationDefinition: StrategyBundleDefinition<"altern
         }
       ];
     },
-    defaultEnabled: () => false,
+    defaultEnabled: (session) => session.returnOriginMode === "any_mainland_city",
     defaultPriority: 2,
     description:
       "Optional comparison cluster for sessions that allow any mainland return-origin city. It does not run a true open-jaw search yet. Instead, it probes alternate mainland cities as bounded round-trip comparisons so FlyEasy can learn which cities deserve deeper return-origin work next.",
@@ -903,6 +950,62 @@ const alternateReturnCityExplorationDefinition: StrategyBundleDefinition<"altern
     title: "Alternate return-city exploration"
   };
 
+const recommendationDateCoverageDefinition: StrategyBundleDefinition<"recommendation_date_coverage"> = {
+  buildPlans: (session, config) => {
+    const resolved = resolveRecommendationDateCoverageExecutionConfig(session, config);
+
+    if (
+      resolved.candidateReviewLimit <= 0 ||
+      resolved.routeTargetLimit <= 0 ||
+      resolved.dateVariationLimit <= 0
+    ) {
+      return [];
+    }
+
+    return [
+      {
+        estimatedSearchCost: resolved.routeTargetLimit * resolved.dateVariationLimit,
+        reason:
+          "After the earlier route-finding clusters finish, spend a small bounded budget filling nearby date flexibility for the strongest recommendation routes so Overview cards and endpoint pickers have more usable variants.",
+        strategyPayload: {
+          candidateReviewLimit: resolved.candidateReviewLimit,
+          dateVariationLimit: resolved.dateVariationLimit,
+          engine: "tripcom_live",
+          routeTargetLimit: resolved.routeTargetLimit,
+          type: "recommendation_date_coverage_probe"
+        },
+        strategyType: "recommendation_date_coverage_probe"
+      }
+    ];
+  },
+  defaultEnabled: () => false,
+  defaultPriority: 3,
+  description:
+    "Optional densification cluster that runs after earlier discovery and comparison strategies. Instead of finding new route ideas, it spends a small bounded budget filling nearby date variants for the strongest recommendation families so the interactive date pickers have better local coverage.",
+  expectedInputs: [
+    "Promising route families from earlier packaged and multi-city strategies",
+    "Current depart, return, and stopover date anchors from those families",
+    "The cheapest route ideas that Overview is likely to surface"
+  ],
+  expectedOutputs: [
+    "Additional nearby round-trip date variants for strong recommendation routes",
+    "Additional anchored multi-city stopover-date variants when those routes already exist",
+    "Better local date flexibility for the recommendation-card endpoint popups"
+  ],
+  getCompatibility: () => ({
+    isCompatible: true,
+    reason: null
+  }),
+  getDefaultConfig: (session) =>
+    normalizeStrategyBundleConfig("recommendation_date_coverage", {}, session),
+  isRequired: false,
+  key: "recommendation_date_coverage",
+  passLabels: ["Recommendation date coverage"],
+  summary:
+    "Optional late-stage densification that improves local date flexibility for the strongest recommendation routes.",
+  title: "Recommendation date coverage"
+};
+
 const stitchedValueProbeDefinition: StrategyBundleDefinition<"stitched_value_probe"> = {
   buildPlans: (_session, config) => {
     const resolved = resolveStitchedValueProbeExecutionConfig(config);
@@ -922,7 +1025,7 @@ const stitchedValueProbeDefinition: StrategyBundleDefinition<"stitched_value_pro
     ];
   },
   defaultEnabled: (session) => session.bookingMode === "stitched" || session.bookingMode === "both",
-  defaultPriority: 3,
+  defaultPriority: 4,
   description:
     "Optional stitched-style comparison that runs after the packaged baseline and any earlier verification strategies. Today it is still a bounded synthetic estimate, not a live stitched search.",
   expectedInputs: ["Packaged winners from earlier strategies"],
@@ -949,6 +1052,7 @@ const strategyBundleCatalog = [
   multiCityVerificationDefinition,
   anchoredMultiCitySearchDefinition,
   alternateReturnCityExplorationDefinition,
+  recommendationDateCoverageDefinition,
   stitchedValueProbeDefinition
 ] as const;
 
@@ -982,6 +1086,12 @@ export function isMultiCityVerificationSelection(
   return selection.strategyKey === "multi_city_verification";
 }
 
+export function isRecommendationDateCoverageSelection(
+  selection: SearchStrategyBundleSelection
+): selection is SearchStrategyBundleSelection<"recommendation_date_coverage"> {
+  return selection.strategyKey === "recommendation_date_coverage";
+}
+
 export function isStitchedValueProbeSelection(
   selection: SearchStrategyBundleSelection
 ): selection is SearchStrategyBundleSelection<"stitched_value_probe"> {
@@ -1008,6 +1118,9 @@ export function getSearchStrategyBundleDefinition(
   strategyKey: "multi_city_verification"
 ): StrategyBundleDefinition<"multi_city_verification">;
 export function getSearchStrategyBundleDefinition(
+  strategyKey: "recommendation_date_coverage"
+): StrategyBundleDefinition<"recommendation_date_coverage">;
+export function getSearchStrategyBundleDefinition(
   strategyKey: "stitched_value_probe"
 ): StrategyBundleDefinition<"stitched_value_probe">;
 export function getSearchStrategyBundleDefinition(strategyKey: SearchStrategyBundleKey) {
@@ -1031,6 +1144,10 @@ export function getSearchStrategyBundleDefinition(strategyKey: SearchStrategyBun
     return multiCityVerificationDefinition;
   }
 
+  if (strategyKey === "recommendation_date_coverage") {
+    return recommendationDateCoverageDefinition;
+  }
+
   return stitchedValueProbeDefinition;
 }
 
@@ -1040,6 +1157,7 @@ export function getDefaultSearchStrategySelections(session: SessionRecord) {
   const multiCityConfig = multiCityVerificationDefinition.getDefaultConfig(session);
   const anchoredMultiCityConfig = anchoredMultiCitySearchDefinition.getDefaultConfig(session);
   const alternateReturnCityConfig = alternateReturnCityExplorationDefinition.getDefaultConfig(session);
+  const recommendationDateCoverageConfig = recommendationDateCoverageDefinition.getDefaultConfig(session);
   const stitchedConfig = stitchedValueProbeDefinition.getDefaultConfig(session);
 
   return [
@@ -1123,6 +1241,23 @@ export function getDefaultSearchStrategySelections(session: SessionRecord) {
       title: alternateReturnCityExplorationDefinition.title
     },
     {
+      compatibility: recommendationDateCoverageDefinition.getCompatibility(
+        session,
+        recommendationDateCoverageConfig
+      ),
+      config: recommendationDateCoverageConfig,
+      description: recommendationDateCoverageDefinition.description,
+      enabled: recommendationDateCoverageDefinition.defaultEnabled(session),
+      expectedInputs: recommendationDateCoverageDefinition.expectedInputs,
+      expectedOutputs: recommendationDateCoverageDefinition.expectedOutputs,
+      isRequired: false,
+      passLabels: recommendationDateCoverageDefinition.passLabels,
+      priority: recommendationDateCoverageDefinition.defaultPriority,
+      strategyKey: recommendationDateCoverageDefinition.key,
+      summary: recommendationDateCoverageDefinition.summary,
+      title: recommendationDateCoverageDefinition.title
+    },
+    {
       compatibility: stitchedValueProbeDefinition.getCompatibility(session, stitchedConfig),
       config: stitchedConfig,
       description: stitchedValueProbeDefinition.description,
@@ -1169,6 +1304,10 @@ export function buildStrategyPlansFromSelections(
 
       if (isMultiCityVerificationSelection(selection)) {
         return multiCityVerificationDefinition.buildPlans(session, selection.config);
+      }
+
+      if (isRecommendationDateCoverageSelection(selection)) {
+        return recommendationDateCoverageDefinition.buildPlans(session, selection.config);
       }
 
       if (isStitchedValueProbeSelection(selection)) {

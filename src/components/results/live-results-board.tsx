@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 
+import { CandidateFlightVisualSection } from "@/components/candidates/candidate-flight-visual-section";
 import {
   buildCandidateRecommendationGroups,
   type CandidateLeg,
@@ -9,7 +10,7 @@ import {
   type CandidateStopover,
   isMultiCityCandidate
 } from "@/lib/candidates/result-groups";
-import { formatDurationMinutes } from "@/lib/formatting";
+import { formatDurationMinutes, isDisplayedIntentionalStopover } from "@/lib/formatting";
 
 type ResultsLivePayload = {
   progress: null | {
@@ -32,6 +33,7 @@ type ResultsLivePayload = {
 type LiveResultsBoardProps = {
   initialPayload: ResultsLivePayload;
   sessionId: string;
+  stopDurationMinDays?: number | null;
 };
 
 function fingerprintPayload(payload: ResultsLivePayload) {
@@ -65,14 +67,6 @@ function formatExactDateTime(isoDateTime: string) {
   }).format(new Date(isoDateTime));
 }
 
-function formatExactTime(isoDateTime: string) {
-  return new Intl.DateTimeFormat("en-AU", {
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false
-  }).format(new Date(isoDateTime));
-}
-
 function formatJourneyDate(isoDateTime: string) {
   return new Intl.DateTimeFormat("en-AU", {
     weekday: "short",
@@ -88,8 +82,13 @@ function formatCompactDate(isoDateTime: string) {
   }).format(new Date(isoDateTime));
 }
 
-function buildStopoverStatusLabel(stopovers: CandidateStopover[]) {
-  const intentionalStopovers = stopovers.filter((stopover) => stopover.isIntentional);
+function buildStopoverStatusLabel(
+  stopovers: CandidateStopover[],
+  stopDurationMinDays: number | null | undefined
+) {
+  const intentionalStopovers = stopovers.filter((stopover) =>
+    isDisplayedIntentionalStopover(stopover, stopDurationMinDays)
+  );
 
   if (intentionalStopovers.length > 0) {
     const cities = [...new Set(intentionalStopovers.map((stopover) => stopover.cityCode))];
@@ -128,15 +127,6 @@ function formatProviderLabel(leg: CandidateLeg) {
 
 function buildRouteProviderLabel(legs: CandidateLeg[]) {
   return legs.map((leg) => formatProviderLabel(leg)).join(" · ");
-}
-
-function getCalendarDayShift(startIso: string, endIso: string) {
-  const start = new Date(startIso);
-  const end = new Date(endIso);
-  const startUtcDay = Date.UTC(start.getUTCFullYear(), start.getUTCMonth(), start.getUTCDate());
-  const endUtcDay = Date.UTC(end.getUTCFullYear(), end.getUTCMonth(), end.getUTCDate());
-
-  return Math.max(0, Math.round((endUtcDay - startUtcDay) / (24 * 60 * 60 * 1000)));
 }
 
 function resolveCandidateBounds(candidate: Pick<CandidateResult, "legs">) {
@@ -192,69 +182,6 @@ function resolveTimelineBounds(groups: Array<{ variants: CandidateResult[] }>) {
   };
 }
 
-function resolveSegmentTimelines(candidate: Pick<CandidateResult, "legs" | "stopovers">) {
-  const segmentGroups = ["outbound", "return"] as const;
-
-  return segmentGroups
-    .map((segmentGroup) => {
-      const segmentLegs = candidate.legs.filter((leg) => leg.segmentGroup === segmentGroup);
-
-      if (segmentLegs.length === 0) {
-        return null;
-      }
-
-      const firstLeg = segmentLegs[0];
-      const finalLeg = segmentLegs[segmentLegs.length - 1];
-      const departureMs = new Date(firstLeg.departureAt).getTime();
-      const arrivalMs = new Date(finalLeg.arrivalAt).getTime();
-      const durationMinutes = Math.max(1, Math.round((arrivalMs - departureMs) / 60_000));
-      const segmentStopovers = candidate.stopovers.filter((stopover) => {
-        const compareIso = stopover.departureAt ?? stopover.arrivalAt;
-
-        if (!compareIso) {
-          return false;
-        }
-
-        const compareMs = new Date(compareIso).getTime();
-        return compareMs >= departureMs && compareMs <= arrivalMs;
-      });
-      const stopMarkers = segmentStopovers
-    .map((stopover) => {
-      if (!stopover.arrivalAt || !stopover.departureAt) {
-        return null;
-      }
-
-      const midpointMs =
-        (new Date(stopover.arrivalAt).getTime() + new Date(stopover.departureAt).getTime()) / 2;
-
-      return {
-        cityCode: stopover.cityCode,
-        isIntentional: stopover.isIntentional,
-        leftPercent: clampPercentage(((midpointMs - departureMs) / Math.max(arrivalMs - departureMs, 1)) * 100)
-      };
-    })
-    .filter((marker): marker is NonNullable<typeof marker> => marker !== null);
-
-      return {
-        arrivalAt: finalLeg.arrivalAt,
-        arrivalDayShift: getCalendarDayShift(firstLeg.departureAt, finalLeg.arrivalAt),
-        arrivalTimeLabel: formatExactTime(finalLeg.arrivalAt),
-        departureAt: firstLeg.departureAt,
-        departureTimeLabel: formatExactTime(firstLeg.departureAt),
-        durationMinutes,
-        label: segmentGroup === "outbound" ? "Outbound route" : "Return route",
-        providerLabel: buildRouteProviderLabel(segmentLegs),
-        routeLabel: `${firstLeg.originAirport} to ${finalLeg.destinationAirport}`,
-        stopCountLabel:
-          segmentStopovers.length > 0
-            ? `${segmentStopovers.length} stop${segmentStopovers.length === 1 ? "" : "s"}`
-            : "Direct",
-        stopMarkers
-      };
-    })
-    .filter((entry): entry is NonNullable<typeof entry> => entry !== null);
-}
-
 function SpinnerBadge() {
   return (
     <span className="inline-flex items-center gap-2 rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-emerald-800">
@@ -264,7 +191,11 @@ function SpinnerBadge() {
   );
 }
 
-function buildHoverLabel(candidate: Pick<CandidateResult, "legs" | "stopovers">, variantCount: number) {
+function buildHoverLabel(
+  candidate: Pick<CandidateResult, "legs" | "stopovers">,
+  variantCount: number,
+  stopDurationMinDays: number | null | undefined
+) {
   const outboundLegs = candidate.legs.filter((leg) => leg.segmentGroup === "outbound");
   const firstOutbound = outboundLegs[0];
   const finalOutbound = outboundLegs[outboundLegs.length - 1];
@@ -285,7 +216,11 @@ function buildHoverLabel(candidate: Pick<CandidateResult, "legs" | "stopovers">,
       ? outboundStopovers
           .map(
             (stopover) =>
-              `${stopover.cityCode} ${formatDurationMinutes(stopover.durationMinutes)} ${stopover.isIntentional ? "intentional" : "incidental"}`
+              `${stopover.cityCode} ${formatDurationMinutes(stopover.durationMinutes)} ${
+                isDisplayedIntentionalStopover(stopover, stopDurationMinDays)
+                  ? "intentional"
+                  : "incidental"
+              }`
           )
           .join(", ")
       : "Direct";
@@ -308,18 +243,20 @@ function buildHoverLabel(candidate: Pick<CandidateResult, "legs" | "stopovers">,
     .join("\n");
 }
 
-function CandidateVariantDetails(props: { candidate: CandidateResult; variantCount: number }) {
+function CandidateVariantDetails(props: {
+  candidate: CandidateResult;
+  stopDurationMinDays: number | null | undefined;
+  variantCount: number;
+}) {
   const outboundLegs = props.candidate.legs.filter((leg) => leg.segmentGroup === "outbound");
   const returnLegs = props.candidate.legs.filter((leg) => leg.segmentGroup === "return");
   const firstOutbound = outboundLegs[0] ?? props.candidate.legs[0] ?? null;
   const finalReturn =
     returnLegs[returnLegs.length - 1] ?? props.candidate.legs[props.candidate.legs.length - 1] ?? null;
-  const segmentTimelines = resolveSegmentTimelines(props.candidate);
-  const maxSegmentDurationMinutes = Math.max(
-    ...segmentTimelines.map((entry) => entry.durationMinutes),
-    1
+  const stopoverStatus = buildStopoverStatusLabel(
+    props.candidate.stopovers,
+    props.stopDurationMinDays
   );
-  const stopoverStatus = buildStopoverStatusLabel(props.candidate.stopovers);
 
   return (
     <div className="rounded-[18px] border border-line bg-white px-4 py-4">
@@ -364,66 +301,11 @@ function CandidateVariantDetails(props: { candidate: CandidateResult; variantCou
       </div>
 
       <div className="mt-4 space-y-3">
-        <div className="rounded-[16px] bg-mist px-4 py-4">
-          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-sea">
-            Route timelines
-          </p>
-          <div className="mt-3 space-y-4">
-            {segmentTimelines.map((segment) => {
-              const lineWidthPercent = clampPercentage(
-                (segment.durationMinutes / maxSegmentDurationMinutes) * 100
-              );
-
-              return (
-                <div key={`${props.candidate.id}-${segment.label}`} className="space-y-2">
-                  <div className="flex flex-wrap items-center justify-between gap-3">
-                    <div>
-                      <p className="text-sm font-semibold text-ink">{segment.label}</p>
-                      <p className="mt-1 text-sm text-slate-600">
-                        {segment.providerLabel} | {segment.routeLabel}
-                      </p>
-                    </div>
-                    <p className="text-sm text-slate-500">
-                      {formatDurationMinutes(segment.durationMinutes)} | {segment.stopCountLabel}
-                    </p>
-                  </div>
-                  <div className="flex flex-wrap items-center gap-3 md:flex-nowrap">
-                    <div className="min-w-[56px] text-sm font-semibold text-ink md:text-right">
-                      {segment.departureTimeLabel}
-                    </div>
-                    <div className="min-w-[180px] flex-1">
-                      <div
-                        className="relative h-8"
-                        style={{ width: `${Math.max(28, lineWidthPercent)}%` }}
-                      >
-                        <div className="absolute left-0 right-0 top-1/2 h-1 -translate-y-1/2 rounded-full bg-slate-300" />
-                        <div className="absolute left-0 top-1/2 h-2 w-full -translate-y-1/2 rounded-full bg-emerald-500" />
-                        {segment.stopMarkers.map((marker, index) => (
-                          <span
-                            key={`${props.candidate.id}-${segment.label}-${marker.cityCode}-${index}`}
-                            className={`absolute top-1/2 h-4 w-4 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-white ${
-                              marker.isIntentional ? "bg-emerald-700" : "bg-slate-600"
-                            }`}
-                            style={{ left: `${marker.leftPercent}%` }}
-                            title={`${marker.cityCode} ${marker.isIntentional ? "intentional" : "incidental"} stop`}
-                          />
-                        ))}
-                      </div>
-                    </div>
-                    <div className="min-w-[72px] text-sm font-semibold text-ink">
-                      <span>{segment.arrivalTimeLabel}</span>
-                      {segment.arrivalDayShift > 0 ? (
-                        <span className="ml-2 rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-[0.12em] text-amber-800">
-                          +{segment.arrivalDayShift}
-                        </span>
-                      ) : null}
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
+        <CandidateFlightVisualSection
+          legs={props.candidate.legs}
+          stopDurationMinDays={props.stopDurationMinDays}
+          stopovers={props.candidate.stopovers}
+        />
 
         {props.candidate.legs.map((leg) => (
           <div
@@ -452,30 +334,14 @@ function CandidateVariantDetails(props: { candidate: CandidateResult; variantCou
         ))}
       </div>
 
-      {props.candidate.stopovers.length > 0 ? (
-        <div className="mt-4 rounded-[16px] bg-mist px-4 py-3">
-          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-sea">
-            Stopovers
-          </p>
-          <div className="mt-2 space-y-2 text-sm text-slate-600">
-            {props.candidate.stopovers.map((stopover) => (
-              <p key={stopover.id}>
-                {stopover.cityCode} ({stopover.airportCode}) | {formatDurationMinutes(stopover.durationMinutes)} |{" "}
-                {stopover.isIntentional ? "intentional" : "incidental"}
-                {stopover.arrivalAt ? ` | arrive ${formatExactDateTime(stopover.arrivalAt)}` : ""}
-                {stopover.departureAt ? ` | depart ${formatExactDateTime(stopover.departureAt)}` : ""}
-              </p>
-            ))}
-          </div>
-        </div>
-      ) : null}
     </div>
   );
 }
 
 export function LiveResultsBoard({
   initialPayload,
-  sessionId
+  sessionId,
+  stopDurationMinDays
 }: LiveResultsBoardProps) {
   const [payload, setPayload] = useState(initialPayload);
   const [_, startTransition] = useTransition();
@@ -575,13 +441,14 @@ export function LiveResultsBoard({
         ) : null}
           {props.groups.length > 0 ? (
             props.groups.map((group) => (
-              <ResultGroupRow
-                key={group.groupKey}
-                group={group}
-                highlighted={props.highlightedIds.has(group.representative.id)}
-                timelineBounds={props.timelineBounds}
-              />
-            ))
+                  <ResultGroupRow
+                    key={group.groupKey}
+                    group={group}
+                    highlighted={props.highlightedIds.has(group.representative.id)}
+                    stopDurationMinDays={stopDurationMinDays}
+                    timelineBounds={props.timelineBounds}
+                  />
+                ))
           ) : (
             <div className="rounded-[20px] bg-white px-4 py-4 text-sm text-slate-600 shadow-sm">
               {props.emptyCopy}
@@ -594,6 +461,7 @@ export function LiveResultsBoard({
   function ResultGroupRow(props: {
     group: { groupKey: string; representative: CandidateResult; variants: CandidateResult[] };
     highlighted: boolean;
+    stopDurationMinDays: number | null | undefined;
     timelineBounds: ReturnType<typeof resolveTimelineBounds>;
   }) {
     const [isOpen, setIsOpen] = useState(false);
@@ -618,7 +486,10 @@ export function LiveResultsBoard({
     const representativeProvider = buildRouteProviderLabel(outboundLegs);
     const outboundDestination =
       outboundLegs[outboundLegs.length - 1]?.destinationAirport ?? candidate.outboundDestinationCity;
-    const stopoverStatus = buildStopoverStatusLabel(candidate.stopovers);
+    const stopoverStatus = buildStopoverStatusLabel(
+      candidate.stopovers,
+      props.stopDurationMinDays
+    );
     const tripKindLabel = isMultiCityCandidate(candidate) ? "Multi-city itinerary" : "Round trip";
 
     return (
@@ -628,7 +499,11 @@ export function LiveResultsBoard({
       >
         <summary
           className="list-none cursor-pointer px-4 py-4 marker:hidden"
-          title={buildHoverLabel(candidate, props.group.variants.length)}
+          title={buildHoverLabel(
+            candidate,
+            props.group.variants.length,
+            props.stopDurationMinDays
+          )}
         >
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
@@ -714,6 +589,7 @@ export function LiveResultsBoard({
                   <CandidateVariantDetails
                     key={variant.id}
                     candidate={variant}
+                    stopDurationMinDays={props.stopDurationMinDays}
                     variantCount={props.group.variants.length}
                   />
                 ))}

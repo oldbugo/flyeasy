@@ -1676,13 +1676,17 @@ function collectBaselineFamilyCityEvidence({
         resolvedBaselineCheapestPrice !== null && cheapestPrice !== null
           ? Math.max(0, cheapestPrice - resolvedBaselineCheapestPrice)
           : null;
+      const flexibilityScore = Math.min(
+        4,
+        Math.max(0, family.departDates.size + family.returnDates.size - 2)
+      );
       const score =
-        (stopoverCities.length > 0 ? 12 : 0) +
-        anchorMatches.length * 5 +
-        (family.sourceStrategyTypes.has("packaged_return_option_expansion") ? 5 : 0) +
-        Math.min(4, family.candidateCount) +
-        Math.min(3, family.intentionalStopCandidateCount) +
-        (baselinePriceDelta !== null ? Math.max(0, 10 - Math.floor(baselinePriceDelta / 50)) : 0);
+        (baselinePriceDelta !== null ? Math.max(0, 16 - Math.floor(baselinePriceDelta / 25)) : 0) +
+        (stopoverCities.length > 0 ? 8 : 0) +
+        anchorMatches.length * 4 +
+        Math.min(6, family.intentionalStopCandidateCount * 2) +
+        Math.min(3, family.candidateCount) +
+        flexibilityScore;
 
       return {
         anchorMatches,
@@ -1837,5 +1841,292 @@ export function buildBaselineFollowupHandoff({
       (entry) => !entry.recommendedFollowups.includes("Baseline control")
     ).length,
     totalCandidateFamilyCount: candidateFamilies.length
+  };
+}
+
+export function buildRecommendationDateCoverageTargets({
+  candidateReviewLimit,
+  db,
+  resolveCityName,
+  routeTargetLimit,
+  runSeed,
+  strategyIds
+}) {
+  if (
+    !Array.isArray(strategyIds) ||
+    strategyIds.length === 0 ||
+    candidateReviewLimit <= 0 ||
+    routeTargetLimit <= 0
+  ) {
+    return {
+      reviewedRouteCount: 0,
+      reviewedVariantCount: 0,
+      routeTargets: []
+    };
+  }
+
+  const strategyPlaceholders = strategyIds.map(() => "?").join(", ");
+  const candidateRows = db
+    .prepare(
+      `select
+         c.id as candidate_id,
+         c.candidate_family_id,
+         c.displayed_display_amount,
+         c.intentional_stop_count,
+         c.stop_count,
+         c.trip_shape,
+         f.family_key
+       from itinerary_candidate c
+       inner join candidate_family f
+         on f.id = c.candidate_family_id
+       where c.strategy_execution_id in (${strategyPlaceholders})
+       order by c.displayed_display_amount asc
+       limit ?`
+    )
+    .all(
+      ...strategyIds,
+      Math.max(routeTargetLimit * 8, candidateReviewLimit * 4, 18)
+    );
+
+  if (candidateRows.length === 0) {
+    return {
+      reviewedRouteCount: 0,
+      reviewedVariantCount: 0,
+      routeTargets: []
+    };
+  }
+
+  const candidateIds = candidateRows.map((row) => row.candidate_id);
+  const candidatePlaceholders = candidateIds.map(() => "?").join(", ");
+  const legRows = db
+    .prepare(
+      `select
+         itinerary_candidate_id,
+         leg_index,
+         segment_group,
+         origin_airport,
+         destination_airport,
+         departure_at
+       from candidate_leg
+       where itinerary_candidate_id in (${candidatePlaceholders})
+       order by itinerary_candidate_id asc, leg_index asc`
+    )
+    .all(...candidateIds);
+  const stopoverRows = db
+    .prepare(
+      `select
+         itinerary_candidate_id,
+         city_code,
+         duration_minutes,
+         is_intentional
+       from candidate_stopover
+       where itinerary_candidate_id in (${candidatePlaceholders})
+       order by itinerary_candidate_id asc, stop_index asc`
+    )
+    .all(...candidateIds);
+  const legsByCandidateId = new Map();
+  const stopoversByCandidateId = new Map();
+
+  for (const leg of legRows) {
+    const current = legsByCandidateId.get(leg.itinerary_candidate_id) ?? [];
+    current.push(leg);
+    legsByCandidateId.set(leg.itinerary_candidate_id, current);
+  }
+
+  for (const stopover of stopoverRows) {
+    const current = stopoversByCandidateId.get(stopover.itinerary_candidate_id) ?? [];
+    current.push(stopover);
+    stopoversByCandidateId.set(stopover.itinerary_candidate_id, current);
+  }
+
+  const familyMap = new Map();
+
+  for (const row of candidateRows) {
+    const legs = legsByCandidateId.get(row.candidate_id) ?? [];
+    if (legs.length === 0) {
+      continue;
+    }
+
+    const orderedLegs = [...legs].sort((left, right) => left.leg_index - right.leg_index);
+    const stopovers = stopoversByCandidateId.get(row.candidate_id) ?? [];
+    const firstLeg = orderedLegs[0] ?? null;
+    const lastLeg = orderedLegs[orderedLegs.length - 1] ?? null;
+    const finalDestinationLeg =
+      row.trip_shape === "open_jaw" || orderedLegs.length > 2
+        ? orderedLegs[Math.max(0, orderedLegs.length - 2)] ?? firstLeg
+        : firstLeg;
+    const departDate = firstLeg?.departure_at ? String(firstLeg.departure_at).slice(0, 10) : null;
+    const returnDate = lastLeg?.departure_at ? String(lastLeg.departure_at).slice(0, 10) : null;
+    const primaryStopover =
+      stopovers.find((stopover) => Number(stopover.is_intentional ?? 0) > 0) ?? stopovers[0] ?? null;
+    const stopoverCityCode = primaryStopover?.city_code ?? null;
+    const layoverCityKeys = [
+      ...new Set(
+        stopovers
+          .map((stopover) => String(stopover.city_code ?? "").trim().toUpperCase())
+          .filter(Boolean)
+      )
+    ];
+    const isMultiCity = row.trip_shape === "open_jaw" || orderedLegs.length > 2;
+    const stopoverDepartDate =
+      isMultiCity && orderedLegs[1]?.departure_at
+        ? String(orderedLegs[1].departure_at).slice(0, 10)
+        : null;
+    const variantKey = isMultiCity
+      ? [departDate ?? "", stopoverDepartDate ?? "", returnDate ?? ""].join("__")
+      : [departDate ?? "", returnDate ?? ""].join("__");
+    const familyEntry = familyMap.get(row.candidate_family_id) ?? {
+      candidateFamilyId: row.candidate_family_id,
+      familyKey: row.family_key,
+      layoverCityKeys: new Set(),
+      cheapestPrice: Number.POSITIVE_INFINITY,
+      representative: null,
+      variantKeys: new Set()
+    };
+
+    familyEntry.cheapestPrice = Math.min(
+      familyEntry.cheapestPrice,
+      Number(row.displayed_display_amount ?? Number.POSITIVE_INFINITY)
+    );
+    familyEntry.variantKeys.add(variantKey);
+    for (const cityCode of layoverCityKeys) {
+      familyEntry.layoverCityKeys.add(cityCode);
+    }
+
+    const currentRepresentativePrice = Number(
+      familyEntry.representative?.displayedAmount ?? Number.POSITIVE_INFINITY
+    );
+    const nextPrice = Number(row.displayed_display_amount ?? Number.POSITIVE_INFINITY);
+
+    if (!familyEntry.representative || nextPrice < currentRepresentativePrice) {
+      familyEntry.representative = {
+        candidateId: row.candidate_id,
+        departDate,
+        destinationCityCode: finalDestinationLeg?.destination_airport ?? null,
+        displayedAmount: nextPrice,
+        isMultiCity,
+        layoverCityKeys: layoverCityKeys.length > 0 ? layoverCityKeys : ["__DIRECT__"],
+        returnDate,
+        stopCount: Number(row.stop_count ?? 0),
+        stopoverCityCode,
+        stopoverCityName: stopoverCityCode
+          ? resolveCityLabel(resolveCityName, stopoverCityCode)
+          : null,
+        stopoverDepartDate
+      };
+    }
+
+    familyMap.set(row.candidate_family_id, familyEntry);
+  }
+
+  const targets = [...familyMap.values()]
+    .map((entry) => ({
+      candidateFamilyId: entry.candidateFamilyId,
+      currentVariantCount: entry.variantKeys.size,
+      departDate: entry.representative?.departDate ?? null,
+      destinationCityCode: entry.representative?.destinationCityCode ?? null,
+      displayedAmount: entry.representative?.displayedAmount ?? null,
+      familyKey: entry.familyKey,
+      isMultiCity: Boolean(entry.representative?.isMultiCity),
+      layoverCityKeys:
+        entry.representative?.layoverCityKeys?.length > 0
+          ? entry.representative.layoverCityKeys
+          : ["__DIRECT__"],
+      returnDate: entry.representative?.returnDate ?? null,
+      stopCount: entry.representative?.stopCount ?? 0,
+      stopoverCityCode: entry.representative?.stopoverCityCode ?? null,
+      stopoverCityName: entry.representative?.stopoverCityName ?? null,
+      stopoverDepartDate: entry.representative?.stopoverDepartDate ?? null,
+      targetType:
+        entry.representative?.isMultiCity &&
+        entry.representative?.stopoverCityCode &&
+        entry.representative?.stopoverDepartDate
+          ? "anchored_multi_city"
+          : "round_trip"
+    }))
+    .filter(
+      (entry) =>
+        entry.departDate &&
+        entry.returnDate &&
+        entry.destinationCityCode &&
+        Number.isFinite(Number(entry.displayedAmount))
+    )
+    .sort((left, right) => {
+      const leftPrice = Number(left.displayedAmount ?? Number.POSITIVE_INFINITY);
+      const rightPrice = Number(right.displayedAmount ?? Number.POSITIVE_INFINITY);
+
+      if (leftPrice !== rightPrice) {
+        return leftPrice - rightPrice;
+      }
+
+      if (left.currentVariantCount !== right.currentVariantCount) {
+        return left.currentVariantCount - right.currentVariantCount;
+      }
+
+      return (
+        createDeterministicUnitInterval(`${runSeed}:${left.familyKey}`) -
+        createDeterministicUnitInterval(`${runSeed}:${right.familyKey}`)
+      );
+    });
+
+  const cheapPriceCeiling =
+    targets.length > 0 && Number.isFinite(Number(targets[0].displayedAmount))
+      ? Number(targets[0].displayedAmount) +
+        Math.max(50, Math.round(Number(targets[0].displayedAmount) * 0.08))
+      : null;
+  const selectedTargets = [];
+  const selectedFamilyIds = new Set();
+  const seenLayoverCities = new Set();
+
+  for (const target of targets) {
+    if (selectedTargets.length >= routeTargetLimit) {
+      break;
+    }
+
+    const hasNewLayoverCity = target.layoverCityKeys.some((cityCode) => !seenLayoverCities.has(cityCode));
+    const isCheap =
+      typeof cheapPriceCeiling === "number" && Number(target.displayedAmount) <= cheapPriceCeiling;
+
+    if (!isCheap && !hasNewLayoverCity) {
+      continue;
+    }
+
+    selectedTargets.push({
+      ...target,
+      selectionReasons: [isCheap ? "cheap" : null, hasNewLayoverCity ? "new_layover_city" : null].filter(
+        Boolean
+      )
+    });
+    selectedFamilyIds.add(target.candidateFamilyId);
+    for (const cityCode of target.layoverCityKeys) {
+      seenLayoverCities.add(cityCode);
+    }
+  }
+
+  if (selectedTargets.length < routeTargetLimit) {
+    for (const target of targets) {
+      if (selectedTargets.length >= routeTargetLimit) {
+        break;
+      }
+
+      if (selectedFamilyIds.has(target.candidateFamilyId)) {
+        continue;
+      }
+
+      selectedTargets.push({
+        ...target,
+        selectionReasons: ["coverage_gap"]
+      });
+      selectedFamilyIds.add(target.candidateFamilyId);
+    }
+  }
+
+  return {
+    reviewedRouteCount: targets.length,
+    reviewedVariantCount: targets.reduce(
+      (total, entry) => total + Number(entry.currentVariantCount ?? 0),
+      0
+    ),
+    routeTargets: selectedTargets
   };
 }

@@ -2,7 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 
 import { rerunSessionAction } from "@/app/sessions/actions";
-import { SessionRouteShell } from "@/components/sessions/session-route-shell";
+import { SessionPageHeader } from "@/components/sessions/session-route-shell";
 import { listCandidateFamilySummaries } from "@/lib/db/queries/candidates";
 import { getSessionHistorySnapshot } from "@/lib/db/queries/history";
 import { getSessionById } from "@/lib/db/queries/sessions";
@@ -27,26 +27,18 @@ export default async function HistoryPage({ params }: HistoryPageProps) {
   }
 
   const { session } = record;
-  const resultsIsRunning = record.hasRunnableActiveRun;
 
   return (
-    <SessionRouteShell
-      activeRun={record.currentActiveRun}
-      activeRunCount={record.activeRunCount}
-      currentTab="history"
-      title="Monitoring and history"
-      description="History keeps repeated runs explainable. It shows what changed, which route families survived, and when the last displayed prices were observed."
-      isArchived={session.lifecycleState === "archived"}
-      monitoringEnabled={session.monitoringState === "enabled"}
-      returnTo={`/sessions/${session.id}/history`}
-      resultsIsRunning={resultsIsRunning}
-      sessionId={session.id}
-      sessionName={session.name}
-      badges={[
-        { label: "Monitoring", value: session.monitoringState },
-        { label: "Lifecycle", value: session.lifecycleState }
-      ]}
-    >
+    <div className="space-y-8">
+      <SessionPageHeader
+        badges={[
+          { label: "Monitoring", value: session.monitoringState },
+          { label: "Lifecycle", value: session.lifecycleState }
+        ]}
+        description="History keeps repeated runs explainable. It shows what changed, which route families survived, and when the last displayed prices were observed."
+        eyebrow="Monitoring and history"
+        title="Monitoring and history"
+      />
       <div className="space-y-6">
         <section className="flex flex-wrap items-center justify-between gap-3 rounded-[28px] border border-line bg-white p-8 shadow-sm">
           <div>
@@ -163,6 +155,6 @@ export default async function HistoryPage({ params }: HistoryPageProps) {
           </aside>
         </section>
       </div>
-    </SessionRouteShell>
+    </div>
   );
 }

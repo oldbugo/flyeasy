@@ -114,6 +114,7 @@ function SummaryCard(props: {
 
 export function BaselineExperimentBoard(props: {
   compact?: boolean;
+  hideHeader?: boolean;
   summary: BaselineExperimentSummary;
 }) {
   const { summary } = props;
@@ -121,19 +122,21 @@ export function BaselineExperimentBoard(props: {
 
   return (
     <section className="space-y-4">
-      <div>
-        <p className="text-xs font-semibold uppercase tracking-[0.22em] text-sea">
-          Baseline strategy lab
-        </p>
-        <h2 className="mt-3 text-2xl font-semibold tracking-tight text-ink">
-          Compare baseline experiments on this session
-        </h2>
-        <p className="mt-2 text-sm leading-7 text-slate-600">
-          Use the same session settings and switch only the baseline strategy. This keeps the
-          comparison meaningful and lets the baseline evolve through a champion-versus-challenger
-          loop instead of ad hoc tweaks.
-        </p>
-      </div>
+      {!props.hideHeader ? (
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-[0.22em] text-sea">
+            Baseline strategy lab
+          </p>
+          <h2 className="mt-3 text-2xl font-semibold tracking-tight text-ink">
+            Compare baseline experiments on this session
+          </h2>
+          <p className="mt-2 text-sm leading-7 text-slate-600">
+            Use the same session settings and switch only the baseline strategy. This keeps the
+            comparison meaningful and lets the baseline evolve through a champion-versus-challenger
+            loop instead of ad hoc tweaks.
+          </p>
+        </div>
+      ) : null}
 
       <div className="grid gap-4 xl:grid-cols-2">
         <SummaryCard

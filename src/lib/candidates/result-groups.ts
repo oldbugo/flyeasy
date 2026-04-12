@@ -49,6 +49,8 @@ export type CandidateRecommendationGroup = {
   variants: CandidateResult[];
 };
 
+export type RecommendationFilter = "all" | "exclude_multi_city" | "only_multi_city";
+
 function getSegmentLegs(legs: CandidateLeg[], segmentGroup: string) {
   return legs.filter((leg) => leg.segmentGroup === segmentGroup);
 }
@@ -194,4 +196,69 @@ export function buildCandidateRecommendationGroups(candidates: CandidateResult[]
     duplicateCount,
     recommendationGroups
   };
+}
+
+function getLayoverCityKeys(candidate: Pick<CandidateResult, "stopovers">) {
+  const cityCodes = [...new Set(candidate.stopovers.map((stopover) => stopover.cityCode.trim()))]
+    .filter(Boolean)
+    .map((cityCode) => cityCode.toUpperCase());
+
+  return cityCodes.length > 0 ? cityCodes : ["__DIRECT__"];
+}
+
+function getCheapPriceCeiling(groups: CandidateRecommendationGroup[]) {
+  const cheapestPrice = groups[0]?.representative.displayedDisplayAmount;
+
+  if (typeof cheapestPrice !== "number" || !Number.isFinite(cheapestPrice)) {
+    return null;
+  }
+
+  const priceBand = Math.max(50, Math.round(cheapestPrice * 0.08));
+  return cheapestPrice + priceBand;
+}
+
+export function selectSignificantRecommendationGroups(
+  recommendationGroups: CandidateRecommendationGroup[]
+) {
+  const cheapPriceCeiling = getCheapPriceCeiling(recommendationGroups);
+
+  if (cheapPriceCeiling === null) {
+    return [];
+  }
+
+  const selectedGroups: CandidateRecommendationGroup[] = [];
+  const seenLayoverCities = new Set<string>();
+
+  for (const group of recommendationGroups) {
+    const layoverCityKeys = getLayoverCityKeys(group.representative);
+    const hasNewLayoverCity = layoverCityKeys.some((cityCode) => !seenLayoverCities.has(cityCode));
+    const isCheap = group.representative.displayedDisplayAmount <= cheapPriceCeiling;
+
+    if (!isCheap && !hasNewLayoverCity) {
+      continue;
+    }
+
+    selectedGroups.push(group);
+
+    for (const cityCode of layoverCityKeys) {
+      seenLayoverCities.add(cityCode);
+    }
+  }
+
+  return selectedGroups;
+}
+
+export function filterRecommendationGroupsByTripType(
+  recommendationGroups: CandidateRecommendationGroup[],
+  filter: RecommendationFilter
+) {
+  if (filter === "only_multi_city") {
+    return recommendationGroups.filter((group) => isMultiCityCandidate(group.representative));
+  }
+
+  if (filter === "exclude_multi_city") {
+    return recommendationGroups.filter((group) => !isMultiCityCandidate(group.representative));
+  }
+
+  return recommendationGroups;
 }

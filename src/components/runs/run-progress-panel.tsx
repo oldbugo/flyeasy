@@ -146,26 +146,26 @@ export function RunProgressPanel({ initialData, runId }: RunProgressPanelProps) 
       baselineExpansionSnapshot
         ? (JSON.parse(baselineExpansionSnapshot.summaryJson) as BaselineReturnOptionExpansionSummary)
         : null,
-    [baselineExpansionSnapshot?.summaryJson]
+    [baselineExpansionSnapshot]
   );
   const baselineExecutionAnalysis = useMemo(
     () =>
       baselineExecutionSnapshot
         ? (JSON.parse(baselineExecutionSnapshot.summaryJson) as BaselineExecutionEfficiencySummary)
         : null,
-    [baselineExecutionSnapshot?.summaryJson]
+    [baselineExecutionSnapshot]
   );
   const baselineHandoffAnalysis = useMemo(
     () =>
       baselineHandoffSnapshot
         ? (JSON.parse(baselineHandoffSnapshot.summaryJson) as BaselineFollowupHandoffSummary)
         : null,
-    [baselineHandoffSnapshot?.summaryJson]
+    [baselineHandoffSnapshot]
   );
   const latestAnalysis = useMemo(
     () =>
       pass1Snapshot ? (JSON.parse(pass1Snapshot.summaryJson) as BaselineMarketSummary) : null,
-    [pass1Snapshot?.summaryJson]
+    [pass1Snapshot]
   );
   const multiCityRankAnalysis = useMemo(
     () =>
@@ -183,7 +183,7 @@ export function RunProgressPanel({ initialData, runId }: RunProgressPanelProps) 
         reviewedCandidateCount?: number;
       })
         : null,
-    [multiCityRankSnapshot?.summaryJson]
+    [multiCityRankSnapshot]
   );
   const multiCityVerificationResultsAnalysis = useMemo(
     () =>
@@ -221,7 +221,7 @@ export function RunProgressPanel({ initialData, runId }: RunProgressPanelProps) 
         sessionStopDurationMinDays?: number | null;
       })
         : null,
-    [multiCityVerificationResultsSnapshot?.summaryJson]
+    [multiCityVerificationResultsSnapshot]
   );
   const anchoredMultiCityResultsAnalysis = useMemo(
     () =>
@@ -259,7 +259,7 @@ export function RunProgressPanel({ initialData, runId }: RunProgressPanelProps) 
         testedDateVariationCount?: number;
       })
         : null,
-    [anchoredMultiCityResultsSnapshot?.summaryJson]
+    [anchoredMultiCityResultsSnapshot]
   );
   const longStopAnalysis = useMemo(
     () =>
@@ -275,7 +275,7 @@ export function RunProgressPanel({ initialData, runId }: RunProgressPanelProps) 
         minimumLongStopHours?: number;
       })
         : null,
-    [longStopSnapshot?.summaryJson]
+    [longStopSnapshot]
   );
   const longStopFollowupAnalysis = useMemo(
     () =>
@@ -295,7 +295,7 @@ export function RunProgressPanel({ initialData, runId }: RunProgressPanelProps) 
         queriedCityCount?: number;
       })
         : null,
-    [longStopFollowupSnapshot?.summaryJson]
+    [longStopFollowupSnapshot]
   );
   const alternateReturnAnalysis = useMemo(
     () =>
@@ -314,7 +314,7 @@ export function RunProgressPanel({ initialData, runId }: RunProgressPanelProps) 
         datePairLimit?: number;
       })
         : null,
-    [alternateReturnSnapshot?.summaryJson]
+    [alternateReturnSnapshot]
   );
 
   const formatQueryTypeLabel = (queryType: string) => {

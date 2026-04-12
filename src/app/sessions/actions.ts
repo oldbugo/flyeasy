@@ -140,13 +140,15 @@ export async function createSessionAction(formData: FormData) {
 }
 
 export async function updateSessionAction(formData: FormData) {
+  const returnTo = String(formData.get("returnTo") ?? "");
   let values;
   try {
     values = parseUpdateSessionForm(formData);
   } catch (error) {
     if (error instanceof ZodError) {
       const sessionId = String(formData.get("sessionId") ?? "");
-      const target = sessionId ? `/sessions/${sessionId}/settings` : "/";
+      const target =
+        returnTo || (sessionId ? `/sessions/${sessionId}/settings` : "/");
       redirect(`${target}?formError=${encodeURIComponent(getFirstValidationMessage(error))}` as never);
     }
 
@@ -205,7 +207,7 @@ export async function updateSessionAction(formData: FormData) {
   revalidatePath("/");
   revalidatePath(`/sessions/${values.sessionId}`);
   revalidatePath(`/sessions/${values.sessionId}/settings`);
-  redirect(`/sessions/${values.sessionId}`);
+  redirect((returnTo || `/sessions/${values.sessionId}/settings`) as never);
 }
 
 export async function forkSessionFromUpdateAction(formData: FormData) {
@@ -308,9 +310,37 @@ export async function duplicateSessionAction(formData: FormData) {
   redirect(`/sessions/${duplicateId}`);
 }
 
+export async function deleteSessionAction(formData: FormData) {
+  const sessionId = String(formData.get("sessionId") ?? "");
+
+  if (!sessionId) {
+    redirect("/");
+  }
+
+  const activeRuns = getSessionActiveRuns(sessionId);
+
+  for (const run of activeRuns) {
+    await stopRun(run.id);
+  }
+
+  const db = getDb();
+  db.delete(sessions).where(eq(sessions.id, sessionId)).run();
+
+  dispatchTripcomRunQueue();
+
+  revalidatePath("/");
+  revalidatePath(`/sessions/${sessionId}`);
+  revalidatePath(`/sessions/${sessionId}/results`);
+  revalidatePath(`/sessions/${sessionId}/history`);
+  revalidatePath(`/sessions/${sessionId}/settings`);
+  revalidatePath(`/sessions/${sessionId}/strategy`);
+  redirect("/");
+}
+
 export async function archiveOrRestoreSessionAction(formData: FormData) {
   const sessionId = String(formData.get("sessionId") ?? "");
   const intent = String(formData.get("intent") ?? "archive");
+  const returnTo = String(formData.get("returnTo") ?? `/sessions/${sessionId}`);
   const db = getDb();
   const updatedAt = nowIso();
 
@@ -327,12 +357,14 @@ export async function archiveOrRestoreSessionAction(formData: FormData) {
 
   revalidatePath("/");
   revalidatePath(`/sessions/${sessionId}`);
-  redirect(`/sessions/${sessionId}`);
+  revalidatePath(`/sessions/${sessionId}/settings`);
+  redirect(returnTo as never);
 }
 
 export async function toggleMonitoringSessionAction(formData: FormData) {
   const sessionId = String(formData.get("sessionId") ?? "");
   const intent = String(formData.get("intent") ?? "enable");
+  const returnTo = String(formData.get("returnTo") ?? `/sessions/${sessionId}`);
   const db = getDb();
   const updatedAt = nowIso();
   const enable = intent === "enable";
@@ -368,7 +400,8 @@ export async function toggleMonitoringSessionAction(formData: FormData) {
 
   revalidatePath("/");
   revalidatePath(`/sessions/${sessionId}`);
-  redirect(`/sessions/${sessionId}`);
+  revalidatePath(`/sessions/${sessionId}/settings`);
+  redirect(returnTo as never);
 }
 
 export async function startBaselineRunAction(formData: FormData) {

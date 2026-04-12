@@ -4,17 +4,15 @@ import {
   clearShortlistStatusAction,
   setShortlistStatusAction
 } from "@/app/sessions/actions";
-import { SessionRouteShell } from "@/components/sessions/session-route-shell";
+import { CandidateFlightVisualSection } from "@/components/candidates/candidate-flight-visual-section";
+import { SessionPageHeader } from "@/components/sessions/session-route-shell";
 import { getCandidateById } from "@/lib/db/queries/candidates";
 import { getSessionById } from "@/lib/db/queries/sessions";
 import {
   formatDurationMinutes,
-  formatIsoDate,
   formatIsoDateTime,
-  formatIsoTime,
   formatMoney,
   formatStopSummary,
-  getMinimumIntentionalStopDurationMinutes,
   isDisplayedIntentionalStopover,
   resolveDisplayedIntentionalStopCount,
   resolveDisplayedStopCount
@@ -39,8 +37,6 @@ export default async function CandidatePage({ params }: CandidatePageProps) {
   }
 
   const { session } = record;
-  const resultsIsRunning =
-    record.latestRun?.status === "queued" || record.latestRun?.status === "running";
   const { candidate, family, legs, observations, shortlistEntry, stopovers } = candidateRecord;
   const displayedIntentionalStopCount = resolveDisplayedIntentionalStopCount({
     stopDurationMinDays: session.stopDurationMinDays,
@@ -52,103 +48,18 @@ export default async function CandidatePage({ params }: CandidatePageProps) {
     intentionalStopCount: displayedIntentionalStopCount,
     storedStopCount: candidate.stopCount
   });
-  const outboundLegs = legs.filter((leg) => leg.segmentGroup === "outbound");
-  const returnLegs = legs.filter((leg) => leg.segmentGroup === "return");
-
-  const renderLegSummary = (label: string, groupedLegs: typeof legs) => {
-    if (groupedLegs.length === 0) {
-      return (
-        <div className="rounded-[22px] bg-mist px-4 py-4">
-          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-sea">{label}</p>
-          <p className="mt-2 text-sm text-slate-500">No extracted leg details yet.</p>
-        </div>
-      );
-    }
-
-    const firstLeg = groupedLegs[0];
-    const lastLeg = groupedLegs[groupedLegs.length - 1];
-    const thresholdMinutes = getMinimumIntentionalStopDurationMinutes(session.stopDurationMinDays);
-    const intentionalStopovers = stopovers.filter(
-      (stopover) =>
-        stopover.durationMinutes >= thresholdMinutes && stopover.isIntentional
-    );
-
-    return (
-      <div className="rounded-[22px] bg-mist px-4 py-4">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-sea">{label}</p>
-            <p className="mt-2 text-sm font-semibold text-ink">
-              {formatIsoDate(firstLeg.departureAt)}
-            </p>
-          </div>
-          <p className="text-xs font-medium text-slate-500">
-            {groupedLegs.length > 1 ? `${groupedLegs.length} flight legs` : "Single flight leg"}
-          </p>
-        </div>
-
-        <div className="mt-4 grid gap-3 md:grid-cols-[1fr_auto_1fr] md:items-center">
-          <div>
-            <p className="text-2xl font-semibold tracking-tight text-ink">
-              {formatIsoTime(firstLeg.departureAt)}
-            </p>
-            <p className="mt-1 text-sm text-slate-600">{firstLeg.originAirport}</p>
-          </div>
-          <div className="text-center text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">
-            <p>{firstLeg.flightNumber ?? firstLeg.carrierCode ?? "Carrier pending"}</p>
-            <p className="mt-2 text-sm normal-case tracking-normal text-slate-500">
-              {intentionalStopovers.length > 0
-                ? `${firstLeg.originAirport} -> ${intentionalStopovers
-                    .map((stopover) => stopover.cityCode)
-                    .join(" -> ")} -> ${lastLeg.destinationAirport}`
-                : groupedLegs.length > 1
-                  ? `via ${groupedLegs.length - 1} change${groupedLegs.length === 2 ? "" : "s"}`
-                  : "direct leg"}
-            </p>
-          </div>
-          <div className="md:text-right">
-            <p className="text-2xl font-semibold tracking-tight text-ink">
-              {formatIsoTime(lastLeg.arrivalAt)}
-            </p>
-            <p className="mt-1 text-sm text-slate-600">{lastLeg.destinationAirport}</p>
-          </div>
-        </div>
-
-        <p className="mt-3 text-sm text-slate-500">
-          {groupedLegs
-            .map((leg) => leg.flightNumber ?? leg.carrierCode ?? leg.fareBrand ?? "Trip.com fare")
-            .join(" | ")}
-        </p>
-        {intentionalStopovers.length > 0 ? (
-          <p className="mt-2 text-sm text-sea">
-            Intentional stop:{" "}
-            {intentionalStopovers
-              .map(
-                (stopover) =>
-                  `${stopover.cityCode} for ${formatDurationMinutes(stopover.durationMinutes)}`
-              )
-              .join(" | ")}
-          </p>
-        ) : null}
-      </div>
-    );
-  };
 
   return (
-    <SessionRouteShell
-      currentTab="results"
-      title="Candidate detail"
-      description="This is the manual booking handoff view for one result. It keeps route shape, fare observations, and shortlist intent visible without automating Trip.com checkout."
-      isArchived={session.lifecycleState === "archived"}
-      monitoringEnabled={session.monitoringState === "enabled"}
-      resultsIsRunning={resultsIsRunning}
-      sessionId={session.id}
-      sessionName={session.name}
-      badges={[
-        { label: "Booking mode", value: candidate.bookingType },
-        { label: "Travel time", value: formatDurationMinutes(candidate.totalTravelMinutes) }
-      ]}
-    >
+    <div className="space-y-8">
+      <SessionPageHeader
+        badges={[
+          { label: "Booking mode", value: candidate.bookingType },
+          { label: "Travel time", value: formatDurationMinutes(candidate.totalTravelMinutes) }
+        ]}
+        description="This is the manual booking handoff view for one result. It keeps route shape, fare observations, and shortlist intent visible without automating Trip.com checkout."
+        eyebrow="Candidate detail"
+        title="Candidate detail"
+      />
       <section className="grid gap-6 lg:grid-cols-[1.15fr_0.85fr]">
         <article className="space-y-6">
           <section className="rounded-[28px] border border-line bg-white p-8 shadow-sm">
@@ -178,10 +89,12 @@ export default async function CandidatePage({ params }: CandidatePageProps) {
               {candidate.riskNotes ?? "No risk notes recorded yet."}
             </p>
 
-            <div className="mt-6 space-y-4">
-              {renderLegSummary("Outbound", outboundLegs)}
-              {renderLegSummary("Return", returnLegs)}
-            </div>
+            <CandidateFlightVisualSection
+              className="mt-6"
+              legs={legs}
+              stopDurationMinDays={session.stopDurationMinDays}
+              stopovers={stopovers}
+            />
 
             <div className="mt-6 flex flex-wrap gap-3">
               {shortlistEntry ? (
@@ -314,6 +227,6 @@ export default async function CandidatePage({ params }: CandidatePageProps) {
           </section>
         </aside>
       </section>
-    </SessionRouteShell>
+    </div>
   );
 }

@@ -2,12 +2,13 @@ import { notFound } from "next/navigation";
 
 import { AiInfluencePanel } from "@/components/ai/ai-influence-panel";
 import { CandidateCard } from "@/components/candidates/candidate-card";
+import { CandidateShortlistAction } from "@/components/candidates/candidate-shortlist-action";
 import { BaselineExperimentBoard } from "@/components/insights/baseline-experiment-board";
 import { SearchOutcomeDetails } from "@/components/insights/search-outcome-insights";
 import { LiveResultsBoard } from "@/components/results/live-results-board";
 import { RoutePlaceholder } from "@/components/shared/route-placeholder";
 import { MetricCard, Panel } from "@/components/shared/ui";
-import { SessionRouteShell } from "@/components/sessions/session-route-shell";
+import { SessionPageHeader } from "@/components/sessions/session-route-shell";
 import { buildCandidateRecommendationGroups } from "@/lib/candidates/result-groups";
 import { listLatestAiInfluenceForSession } from "@/lib/db/queries/ai";
 import { listCandidatesForSession } from "@/lib/db/queries/candidates";
@@ -35,7 +36,6 @@ export default async function ResultsPage({ params }: ResultsPageProps) {
 
   const { baselineExperiment, currentBestCandidate, latestStrategyEvidence, session } = record;
   const latestRunProgress = record.latestRun ? await getRunProgress(record.latestRun.id) : null;
-  const resultsIsRunning = record.hasRunnableActiveRun;
   const groupedResults = buildCandidateRecommendationGroups(candidates);
   const shortlistedCount = groupedResults.recommendationGroups.filter(
     (group) => group.representative.isShortlisted
@@ -45,31 +45,24 @@ export default async function ResultsPage({ params }: ResultsPageProps) {
   ).length;
 
   return (
-    <SessionRouteShell
-      activeRun={record.currentActiveRun}
-      activeRunCount={record.activeRunCount}
-      currentTab="results"
-      title="Results"
-      description="Results is the full information surface for the latest run: live progress, ranked itineraries, detailed search insights, grouped variants, stop patterns, and shortlist state."
-      isArchived={session.lifecycleState === "archived"}
-      monitoringEnabled={session.monitoringState === "enabled"}
-      returnTo={`/sessions/${session.id}/results`}
-      resultsIsRunning={resultsIsRunning}
-      sessionId={session.id}
-      sessionName={session.name}
-      badges={[
-        { label: "Monitoring", value: session.monitoringState },
-        {
-          label: "Best current fare",
-          value: currentBestCandidate
-            ? formatMoney(
-                currentBestCandidate.displayedDisplayCurrency,
-                currentBestCandidate.displayedDisplayAmount
-              )
-            : "No fare yet"
-        }
-      ]}
-    >
+    <div className="space-y-8">
+      <SessionPageHeader
+        badges={[
+          { label: "Monitoring", value: session.monitoringState },
+          {
+            label: "Best current fare",
+            value: currentBestCandidate
+              ? formatMoney(
+                  currentBestCandidate.displayedDisplayCurrency,
+                  currentBestCandidate.displayedDisplayAmount
+                )
+              : "No fare yet"
+          }
+        ]}
+        description="Results is the full information surface for the latest run: live progress, ranked itineraries, detailed search insights, grouped variants, stop patterns, and shortlist state."
+        eyebrow="Results"
+        title="Results"
+      />
       {record.latestRun ? (
         <div className="space-y-6">
           <LiveResultsBoard
@@ -79,6 +72,7 @@ export default async function ResultsPage({ params }: ResultsPageProps) {
               status: record.latestRun.status
             }}
             sessionId={session.id}
+            stopDurationMinDays={session.stopDurationMinDays}
           />
 
           <AiInfluencePanel items={aiInfluence} />
@@ -136,8 +130,13 @@ export default async function ResultsPage({ params }: ResultsPageProps) {
                       legs={candidate.legs}
                       outboundDestinationCity={candidate.outboundDestinationCity}
                       riskNotes={candidate.riskNotes}
-                      runId={candidate.runId}
-                      sessionId={session.id}
+                      secondaryAction={
+                        <CandidateShortlistAction
+                          candidateId={candidate.id}
+                          isShortlisted={candidate.isShortlisted}
+                          sessionId={session.id}
+                        />
+                      }
                       stopDurationMinDays={session.stopDurationMinDays}
                       stopovers={candidate.stopovers}
                       status={candidate.latestVerificationStatus}
@@ -184,6 +183,6 @@ export default async function ResultsPage({ params }: ResultsPageProps) {
           description="No candidates have been persisted for this session yet. Start a baseline run to populate the results overview."
         />
       )}
-    </SessionRouteShell>
+    </div>
   );
 }

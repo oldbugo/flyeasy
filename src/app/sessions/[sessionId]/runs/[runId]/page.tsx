@@ -3,7 +3,7 @@ import Link from "next/link";
 
 import { resumeBlockedRunAction, stopRunAction } from "@/app/sessions/actions";
 import { RunProgressPanel } from "@/components/runs/run-progress-panel";
-import { SessionRouteShell } from "@/components/sessions/session-route-shell";
+import { SessionPageHeader } from "@/components/sessions/session-route-shell";
 import { getSessionById } from "@/lib/db/queries/sessions";
 import { getRunProgress } from "@/lib/runs/deterministic-engine";
 
@@ -24,7 +24,6 @@ export default async function RunPage({ params }: RunPageProps) {
 
   const { session } = record;
   const { run } = runRecord;
-  const resultsIsRunning = record.hasRunnableActiveRun;
   const canStop =
     run.status === "queued" ||
     run.status === "running" ||
@@ -32,23 +31,16 @@ export default async function RunPage({ params }: RunPageProps) {
     run.status === "paused";
 
   return (
-    <SessionRouteShell
-      activeRun={record.currentActiveRun}
-      activeRunCount={record.activeRunCount}
-      currentTab="history"
-      title={`Run ${runId}`}
-      description="This route will become the live run surface for strategy progress, blocked-state recovery, and partial results as the worker executes."
-      isArchived={session.lifecycleState === "archived"}
-      monitoringEnabled={session.monitoringState === "enabled"}
-      returnTo={`/sessions/${session.id}/runs/${run.id}`}
-      resultsIsRunning={resultsIsRunning}
-      sessionId={session.id}
-      sessionName={session.name}
-      badges={[
-        { label: "Run status", value: run.status },
-        { label: "Strategies planned", value: String(run.totalStrategiesPlanned) }
-      ]}
-    >
+    <div className="space-y-8">
+      <SessionPageHeader
+        badges={[
+          { label: "Run status", value: run.status },
+          { label: "Strategies planned", value: String(run.totalStrategiesPlanned) }
+        ]}
+        description="This route will become the live run surface for strategy progress, blocked-state recovery, and partial results as the worker executes."
+        eyebrow="Run detail"
+        title={`Run ${runId}`}
+      />
       <div className="flex justify-end">
         {canStop ? (
           <form action={stopRunAction}>
@@ -97,6 +89,6 @@ export default async function RunPage({ params }: RunPageProps) {
       ) : null}
 
       <RunProgressPanel initialData={runRecord} runId={runId} />
-    </SessionRouteShell>
+    </div>
   );
 }
