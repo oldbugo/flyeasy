@@ -4,7 +4,7 @@ import { getDb } from "@/lib/db/client";
 import { itineraryCandidates } from "@/lib/db/schema/candidate";
 import { searchRuns } from "@/lib/db/schema/run";
 import { sessions } from "@/lib/db/schema/session";
-import { ensureDevelopmentSeed } from "@/lib/db/seed";
+import { ensureExampleSession } from "@/lib/db/seed";
 
 export type SessionShellRecord = {
   activeRunCount: number;
@@ -36,7 +36,7 @@ export type SessionShellRecord = {
 export async function getSessionShellById(
   sessionId: string
 ): Promise<SessionShellRecord | null> {
-  await ensureDevelopmentSeed();
+  await ensureExampleSession();
 
   const db = getDb();
   const session = db

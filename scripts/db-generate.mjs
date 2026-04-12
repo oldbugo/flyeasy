@@ -1,9 +1,9 @@
 import fs from "node:fs";
 import path from "node:path";
 
-import { ensureFlyEasyPaths } from "./lib/flyeasy-paths.mjs";
+import { ensureFlyEasyPaths, resolveFlyEasyAppRoot } from "./lib/flyeasy-paths.mjs";
 
-const root = path.resolve("D:/flyeasy");
+const root = resolveFlyEasyAppRoot();
 const drizzleDir = path.join(root, "drizzle");
 const migrationPath = path.join(drizzleDir, "0000_bootstrap.sql");
 const initialMigrationPath = path.join(drizzleDir, "0001_initial.sql");

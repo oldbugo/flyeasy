@@ -5,7 +5,11 @@ import { fileURLToPath } from "node:url";
 
 import Database from "better-sqlite3";
 
-import { ensureFlyEasyPaths } from "../lib/flyeasy-paths.mjs";
+import {
+  ensureFlyEasyPaths,
+  resolveBetterSqliteBindingPath,
+  resolveFlyEasyAppRoot
+} from "../lib/flyeasy-paths.mjs";
 import { resolveRuntimeStatePaths } from "./lib/runtime-state.mjs";
 
 const args = process.argv.slice(2);
@@ -233,7 +237,7 @@ function claimRun(db, runId, resumeRequested) {
 function spawnWorker(runId, resumeRequested) {
   const preferences = readAutomationPreferences();
   const child = spawn(process.execPath, [workerScriptPath, runId], {
-    cwd: process.cwd(),
+    cwd: resolveFlyEasyAppRoot(),
     detached: true,
     env: {
       ...process.env,
@@ -253,7 +257,9 @@ function main() {
     return;
   }
 
-  const db = new Database(paths.dbPath);
+  const db = new Database(paths.dbPath, {
+    nativeBinding: resolveBetterSqliteBindingPath()
+  });
   db.pragma("journal_mode = WAL");
   db.pragma("foreign_keys = ON");
   db.pragma("busy_timeout = 5000");

@@ -12,8 +12,10 @@ release/
 # Local desktop/runtime files
 .tmp/
 .tmp-*/
+.tmp-packaged*/
 .tmp-electron-data/
 .tmp-shots/
+.desktop-runtime/
 artifacts/
 playwright-state/
 *.png

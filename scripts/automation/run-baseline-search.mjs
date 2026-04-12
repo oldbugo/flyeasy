@@ -7,7 +7,11 @@ import { fileURLToPath } from "node:url";
 import Database from "better-sqlite3";
 import { chromium } from "playwright";
 
-import { ensureFlyEasyPaths } from "../lib/flyeasy-paths.mjs";
+import {
+  ensureFlyEasyPaths,
+  resolveBetterSqliteBindingPath,
+  resolveFlyEasyAppRoot
+} from "../lib/flyeasy-paths.mjs";
 import { writeConnectionState, writeWorkerState } from "./lib/runtime-state.mjs";
 import {
   buildAlternateReturnCityTargets as buildAlternateReturnCityTargetsFromEvidence,
@@ -770,7 +774,7 @@ function buildNoResultsStage(lastUrl, noResults) {
 
 function requestQueuedRunDispatch() {
   const child = spawn(process.execPath, [dispatchQueueScriptPath], {
-    cwd: process.cwd(),
+    cwd: resolveFlyEasyAppRoot(),
     detached: true,
     env: process.env,
     stdio: "ignore"
@@ -5044,7 +5048,9 @@ const paths = ensureFlyEasyPaths();
 const runDir = path.join(paths.artifactsDir, "baseline-runs", runId);
 fs.mkdirSync(runDir, { recursive: true });
 
-const db = new Database(paths.dbPath);
+const db = new Database(paths.dbPath, {
+  nativeBinding: resolveBetterSqliteBindingPath()
+});
 db.pragma("foreign_keys = ON");
 
 const runRow = db

@@ -1,6 +1,8 @@
 import { app, BrowserWindow, ipcMain } from "electron";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import fs from "node:fs";
+import http from "node:http";
+import net from "node:net";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -8,16 +10,19 @@ import { ensureDesktopPaths, resolveDesktopPaths } from "../bootstrap/paths.mjs"
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const preloadPath = path.join(__dirname, "..", "preload", "preload.cjs");
-const rendererUrl = process.env.FLYEASY_RENDERER_URL ?? "http://127.0.0.1:3000";
-const schedulerTickUrl = new URL("/api/monitoring/tick", rendererUrl).toString();
 const schedulerIntervalMs = 60_000;
 const rendererRetryDelayMs = 1_500;
+const isDevRenderer = Boolean(process.env.FLYEASY_RENDERER_URL);
 
 let schedulerInterval;
 let shutdownStarted = false;
 let mainWindow;
+let nextServerProcess;
 let rendererRetryTimeout;
 let captureInFlight = false;
+let rendererUrl = process.env.FLYEASY_RENDERER_URL ?? null;
+let schedulerTickUrl = rendererUrl ? new URL("/api/monitoring/tick", rendererUrl).toString() : null;
+let runtimeStartupPromise;
 
 if (process.env.FLYEASY_DISABLE_GPU === "1") {
   app.disableHardwareAcceleration();
@@ -82,6 +87,10 @@ async function captureDesktopWindow(tag = "desktop-capture") {
 }
 
 async function tickMonitoringScheduler() {
+  if (!schedulerTickUrl) {
+    return;
+  }
+
   try {
     await fetch(schedulerTickUrl, {
       method: "POST"
@@ -92,6 +101,10 @@ async function tickMonitoringScheduler() {
 }
 
 function startMonitoringScheduler() {
+  if (!schedulerTickUrl || schedulerInterval) {
+    return;
+  }
+
   void tickMonitoringScheduler();
   schedulerInterval = setInterval(() => {
     void tickMonitoringScheduler();
@@ -129,6 +142,11 @@ function scheduleRendererReconnect() {
 }
 
 async function loadRenderer(window) {
+  if (!rendererUrl) {
+    showLoadingFallback(window);
+    return;
+  }
+
   try {
     await window.loadURL(rendererUrl);
     stopRendererRetryLoop();
@@ -192,7 +210,7 @@ function showLoadingFallback(window) {
         <div class="card">
           <p class="eyebrow">FlyEasy</p>
           <h1>Reloading the desktop workspace</h1>
-          <p>The local UI is reconnecting after a dev-server update. This screen should disappear automatically once the renderer is available again.</p>
+          <p>The local UI is reconnecting. On first launch, FlyEasy may also take a little longer while it prepares the browser automation runtime.</p>
         </div>
       </body>
     </html>
@@ -203,7 +221,7 @@ function showLoadingFallback(window) {
 }
 
 function cleanupFlyeasySupportProcesses() {
-  if (process.platform !== "win32") {
+  if (process.platform !== "win32" || app.isPackaged || !isDevRenderer) {
     return;
   }
 
@@ -236,6 +254,202 @@ function cleanupFlyeasySupportProcesses() {
   }
 }
 
+function waitForUrl(targetUrl, timeoutMs) {
+  const startedAt = Date.now();
+
+  return new Promise((resolve, reject) => {
+    const tick = () => {
+      const req = http.get(targetUrl, (res) => {
+        res.resume();
+        resolve();
+      });
+
+      req.on("error", () => {
+        if (Date.now() - startedAt > timeoutMs) {
+          reject(new Error(`Timed out waiting for ${targetUrl}`));
+          return;
+        }
+
+        setTimeout(tick, 500);
+      });
+    };
+
+    tick();
+  });
+}
+
+function findAvailablePort() {
+  return new Promise((resolve, reject) => {
+    const server = net.createServer();
+
+    server.on("error", reject);
+    server.listen(0, "127.0.0.1", () => {
+      const address = server.address();
+      const port = typeof address === "object" && address ? address.port : null;
+      server.close((error) => {
+        if (error) {
+          reject(error);
+          return;
+        }
+
+        if (!port) {
+          reject(new Error("Unable to determine an available localhost port."));
+          return;
+        }
+
+        resolve(port);
+      });
+    });
+  });
+}
+
+function getPackagedAppRoot() {
+  return path.join(process.resourcesPath, "app-dist");
+}
+
+function getPackagedNodeExecutablePath() {
+  return path.join(process.resourcesPath, "app-dist-runtime", "node", "node.exe");
+}
+
+function getPackagedServerScriptPath() {
+  return path.join(getPackagedAppRoot(), "server.js");
+}
+
+function getPackagedRuntimeScriptPath(scriptRelativePath) {
+  return path.join(getPackagedAppRoot(), scriptRelativePath);
+}
+
+function getNodeRuntimeEnv(overrides = {}) {
+  const runtimeEnv =
+    app.isPackaged && fs.existsSync(getPackagedNodeExecutablePath())
+      ? {}
+      : { ELECTRON_RUN_AS_NODE: "1" };
+
+  return {
+    ...process.env,
+    ...runtimeEnv,
+    ...overrides
+  };
+}
+
+function getNodeExecutablePath() {
+  const packagedNodePath = getPackagedNodeExecutablePath();
+
+  if (app.isPackaged && fs.existsSync(packagedNodePath)) {
+    return packagedNodePath;
+  }
+
+  return process.execPath;
+}
+
+function stopPackagedServer() {
+  if (!nextServerProcess || nextServerProcess.killed) {
+    nextServerProcess = undefined;
+    return;
+  }
+
+  nextServerProcess.kill();
+  nextServerProcess = undefined;
+}
+
+function runNodeScript(scriptPath, envOverrides = {}) {
+  return new Promise((resolve, reject) => {
+    const nodeExecutablePath = getNodeExecutablePath();
+    const child = spawn(nodeExecutablePath, [scriptPath], {
+      cwd: path.dirname(scriptPath),
+      env: getNodeRuntimeEnv(envOverrides),
+      stdio: "ignore"
+    });
+
+    child.on("error", reject);
+    child.on("exit", (code) => {
+      if (code === 0) {
+        resolve();
+        return;
+      }
+
+      reject(new Error(`Node script failed with exit code ${code ?? "unknown"}: ${scriptPath}`));
+    });
+  });
+}
+
+async function startRuntimeBackend() {
+  if (rendererUrl) {
+    startMonitoringScheduler();
+    return;
+  }
+
+  if (runtimeStartupPromise) {
+    await runtimeStartupPromise;
+    return;
+  }
+
+  runtimeStartupPromise = (async () => {
+    const paths = ensureDesktopPaths(app);
+    const appRoot = getPackagedAppRoot();
+    const serverScriptPath = getPackagedServerScriptPath();
+    const browserSetupScriptPath = getPackagedRuntimeScriptPath(
+      path.join("scripts", "runtime", "ensure-playwright-browser.mjs")
+    );
+
+    await runNodeScript(browserSetupScriptPath, {
+      FLYEASY_APP_ROOT: appRoot,
+      FLYEASY_DATA_DIR: paths.rootDir,
+      PLAYWRIGHT_BROWSERS_PATH: paths.playwrightBrowsersDir
+    });
+
+    const port = await findAvailablePort();
+    const nextUrl = `http://127.0.0.1:${port}`;
+    const nodeExecutablePath = getNodeExecutablePath();
+    const child = spawn(nodeExecutablePath, [serverScriptPath], {
+      cwd: appRoot,
+      env: getNodeRuntimeEnv({
+        FLYEASY_APP_ROOT: appRoot,
+        FLYEASY_DATA_DIR: paths.rootDir,
+        HOSTNAME: "127.0.0.1",
+        NODE_ENV: "production",
+        PLAYWRIGHT_BROWSERS_PATH: paths.playwrightBrowsersDir,
+        PORT: String(port)
+      }),
+      stdio: "ignore"
+    });
+
+    child.on("exit", (code) => {
+      appendDesktopDebug(`next-server-exit code=${code ?? "unknown"}`);
+      nextServerProcess = undefined;
+      rendererUrl = null;
+      schedulerTickUrl = null;
+      stopMonitoringScheduler();
+
+      if (!shutdownStarted) {
+        void startRuntimeBackend().catch((error) => {
+          appendDesktopDebug(`runtime-restart-error ${String(error)}`);
+        });
+      }
+    });
+
+    child.on("error", (error) => {
+      appendDesktopDebug(`next-server-error ${String(error)}`);
+    });
+
+    nextServerProcess = child;
+    await waitForUrl(nextUrl, 60_000);
+    rendererUrl = nextUrl;
+    schedulerTickUrl = new URL("/api/monitoring/tick", rendererUrl).toString();
+    startMonitoringScheduler();
+
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      void loadRenderer(mainWindow);
+    }
+  })();
+
+  try {
+    await runtimeStartupPromise;
+  } finally {
+    runtimeStartupPromise = undefined;
+  }
+}
+
 function shutdownEverything() {
   if (shutdownStarted) {
     return;
@@ -244,6 +458,7 @@ function shutdownEverything() {
   shutdownStarted = true;
   stopRendererRetryLoop();
   stopMonitoringScheduler();
+  stopPackagedServer();
   cleanupFlyeasySupportProcesses();
 }
 
@@ -365,7 +580,9 @@ if (!hasSingleInstanceLock) {
   app.whenReady().then(() => {
     ensureDesktopPaths(app);
     createWindow();
-    startMonitoringScheduler();
+    void startRuntimeBackend().catch((error) => {
+      appendDesktopDebug(`runtime-startup-error ${String(error)}`);
+    });
 
     app.on("activate", () => {
       if (BrowserWindow.getAllWindows().length === 0) {

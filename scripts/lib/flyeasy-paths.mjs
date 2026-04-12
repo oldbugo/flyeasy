@@ -2,6 +2,21 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
+export function resolveFlyEasyAppRoot() {
+  return path.resolve(process.env.FLYEASY_APP_ROOT ?? process.cwd());
+}
+
+export function resolveBetterSqliteBindingPath() {
+  return path.join(
+    resolveFlyEasyAppRoot(),
+    "node_modules",
+    "better-sqlite3",
+    "build",
+    "Release",
+    "better_sqlite3.node"
+  );
+}
+
 export function resolveFlyEasyPaths() {
   if (process.env.FLYEASY_DATA_DIR) {
     const rootDir = path.resolve(process.env.FLYEASY_DATA_DIR);
@@ -10,7 +25,8 @@ export function resolveFlyEasyPaths() {
       rootDir,
       artifactsDir: path.join(rootDir, "artifacts"),
       browserStateDir: path.join(rootDir, "playwright-state"),
-      dbPath: path.join(rootDir, "flyeasy.db")
+      dbPath: path.join(rootDir, "flyeasy.db"),
+      playwrightBrowsersDir: path.join(rootDir, "playwright-browsers")
     };
   }
 
@@ -32,12 +48,18 @@ export function resolveFlyEasyPaths() {
     rootDir,
     artifactsDir: path.join(rootDir, "artifacts"),
     browserStateDir: path.join(rootDir, "playwright-state"),
-    dbPath: path.join(rootDir, "flyeasy.db")
+    dbPath: path.join(rootDir, "flyeasy.db"),
+    playwrightBrowsersDir: path.join(rootDir, "playwright-browsers")
   };
 }
 
 export function ensureFlyEasyPaths(paths = resolveFlyEasyPaths()) {
-  for (const dirPath of [paths.rootDir, paths.artifactsDir, paths.browserStateDir]) {
+  for (const dirPath of [
+    paths.rootDir,
+    paths.artifactsDir,
+    paths.browserStateDir,
+    paths.playwrightBrowsersDir
+  ]) {
     fs.mkdirSync(dirPath, { recursive: true });
   }
 

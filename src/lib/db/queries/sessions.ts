@@ -2,7 +2,7 @@ import { and, desc, eq, inArray, sql } from "drizzle-orm";
 
 import { ensureAiStrategyProposals } from "@/lib/ai/strategy-proposals";
 import { getDb } from "@/lib/db/client";
-import { ensureDevelopmentSeed } from "@/lib/db/seed";
+import { ensureExampleSession } from "@/lib/db/seed";
 import {
   candidateLegs,
   candidateStopovers,
@@ -577,7 +577,7 @@ function buildStatusCopy(row: {
 }
 
 export async function listSessionsForDashboard(): Promise<SessionListItem[]> {
-  await ensureDevelopmentSeed();
+  await ensureExampleSession();
 
   const db = getDb();
   const rows = db
@@ -697,6 +697,8 @@ export async function listSessionsForDashboard(): Promise<SessionListItem[]> {
 }
 
 export async function countSessions() {
+  await ensureExampleSession();
+
   const db = getDb();
   const result = db.select({ count: sql<number>`count(*)` }).from(sessions).get();
 
@@ -704,7 +706,7 @@ export async function countSessions() {
 }
 
 export async function getSessionById(sessionId: string) {
-  await ensureDevelopmentSeed();
+  await ensureExampleSession();
 
   const db = getDb();
   const session = db

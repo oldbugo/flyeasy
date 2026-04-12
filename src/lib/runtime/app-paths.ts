@@ -7,8 +7,24 @@ export type FlyEasyPaths = {
   artifactsDir: string;
   browserStateDir: string;
   dbPath: string;
+  playwrightBrowsersDir: string;
   rootDir: string;
 };
+
+export function resolveFlyEasyAppRoot() {
+  return path.resolve(process.env.FLYEASY_APP_ROOT ?? process.cwd());
+}
+
+export function resolveBetterSqliteBindingPath() {
+  return path.join(
+    resolveFlyEasyAppRoot(),
+    "node_modules",
+    "better-sqlite3",
+    "build",
+    "Release",
+    "better_sqlite3.node"
+  );
+}
 
 function resolveBaseDataDir() {
   if (process.env.FLYEASY_DATA_DIR) {
@@ -36,12 +52,18 @@ export function resolveFlyEasyPaths(): FlyEasyPaths {
     artifactsDir: path.join(rootDir, "artifacts"),
     browserStateDir: path.join(rootDir, "playwright-state"),
     dbPath: path.join(rootDir, "flyeasy.db"),
+    playwrightBrowsersDir: path.join(rootDir, "playwright-browsers"),
     rootDir
   };
 }
 
 export function ensureFlyEasyPaths(paths = resolveFlyEasyPaths()) {
-  for (const dirPath of [paths.rootDir, paths.artifactsDir, paths.browserStateDir]) {
+  for (const dirPath of [
+    paths.rootDir,
+    paths.artifactsDir,
+    paths.browserStateDir,
+    paths.playwrightBrowsersDir
+  ]) {
     fs.mkdirSync(dirPath, { recursive: true });
   }
 

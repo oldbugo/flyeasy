@@ -1,6 +1,8 @@
 {
   "name": "flyeasy",
   "version": "1.0.0",
+  "author": "FlyEasy",
+  "description": "Local-first desktop travel-hunt app for Trip.com flight search and verification.",
   "private": true,
   "type": "module",
   "main": "src/desktop/main/main.mjs",
@@ -9,6 +11,11 @@
     "dev:desktop": "node scripts/dev-desktop.mjs",
     "electron": "electron src/desktop/main/main.mjs",
     "build": "next build",
+    "build:desktop": "npm run build",
+    "prepare:desktop-runtime": "node scripts/pack/prepare-runtime.mjs",
+    "rebuild:native": "npm rebuild better-sqlite3",
+    "pack:win": "npm run prepare:desktop-runtime && npm run rebuild:native && npm run build:desktop && electron-builder --win nsis --dir",
+    "dist:win": "npm run prepare:desktop-runtime && npm run rebuild:native && npm run build:desktop && electron-builder --win nsis --publish never",
     "start": "next start",
     "lint": "eslint . --ext .js,.mjs,.ts,.tsx",
     "typecheck": "tsc --noEmit",
@@ -26,10 +33,9 @@
   },
   "dependencies": {
     "@phosphor-icons/react": "^2.1.10",
-    "better-sqlite3": "^11.0.0",
+    "better-sqlite3": "^12.8.0",
     "chart.js": "^4.5.1",
     "drizzle-orm": "^0.33.0",
-    "electron": "^41.0.2",
     "next": "^16.1.6",
     "playwright": "^1.55.0",
     "react": "^19.2.0",
@@ -42,11 +48,99 @@
     "@types/react": "^19.2.2",
     "@types/react-dom": "^19.2.2",
     "autoprefixer": "^10.4.19",
+    "electron": "^41.0.2",
+    "electron-builder": "^26.0.12",
     "eslint": "^9.38.0",
     "eslint-config-next": "^16.1.6",
     "postcss": "^8.4.39",
     "tailwindcss": "^3.4.7",
     "typescript": "^5.5.4"
+  },
+  "build": {
+    "appId": "com.flyeasy.app",
+    "artifactName": "FlyEasy-Setup-${version}.${ext}",
+    "asar": true,
+    "directories": {
+      "output": "release"
+    },
+    "extraResources": [
+      {
+        "from": ".next/standalone",
+        "to": "app-dist",
+        "filter": [
+          "**/*",
+          "!artifacts{,/**/*}",
+          "!designs{,/**/*}",
+          "!docs{,/**/*}",
+          "!release{,/**/*}",
+          "!flyeasy.db",
+          "!package-lock.json",
+          "!README.md",
+          "!tmp-*.log"
+        ]
+      },
+      {
+        "from": ".next/standalone/node_modules",
+        "to": "app-dist/node_modules"
+      },
+      {
+        "from": "node_modules/better-sqlite3",
+        "to": "app-dist/node_modules/better-sqlite3"
+      },
+      {
+        "from": "node_modules/bindings",
+        "to": "app-dist/node_modules/bindings"
+      },
+      {
+        "from": "node_modules/file-uri-to-path",
+        "to": "app-dist/node_modules/file-uri-to-path"
+      },
+      {
+        "from": ".next/static",
+        "to": "app-dist/.next/static"
+      },
+      {
+        "from": "node_modules/playwright",
+        "to": "app-dist/node_modules/playwright"
+      },
+      {
+        "from": "node_modules/playwright-core",
+        "to": "app-dist/node_modules/playwright-core"
+      },
+      {
+        "from": "scripts",
+        "to": "app-dist/scripts"
+      },
+      {
+        "from": "drizzle",
+        "to": "app-dist/drizzle"
+      },
+      {
+        "from": ".desktop-runtime/node",
+        "to": "app-dist-runtime/node"
+      }
+    ],
+    "files": [
+      "package.json",
+      "src/desktop/**/*"
+    ],
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false
+    },
+    "productName": "FlyEasy",
+    "publish": [
+      {
+        "provider": "github",
+        "releaseType": "draft"
+      }
+    ],
+    "win": {
+      "signAndEditExecutable": false,
+      "target": [
+        "nsis"
+      ]
+    }
   },
   "overrides": {
     "yauzl": "^3.2.1"

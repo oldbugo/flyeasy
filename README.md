@@ -24,6 +24,16 @@ The true MVP is intentionally narrow:
 
 Stitched search, broader search expansion, and AI strategy generation are planned after the core trust loop is proven.
 
+## Windows Packaging
+
+FlyEasy can now be packaged as a Windows installer:
+
+- `npm run dist:win` builds a Windows `.exe` installer into `release/`
+- the packaged app starts its own local Next.js server through a bundled Node runtime instead of depending on `next dev`
+- Playwright Chromium is installed on first launch into the user's FlyEasy app-data directory so the installer stays smaller
+
+GitHub Actions in [.github/workflows/windows-release.yml](.github/workflows/windows-release.yml) will build the installer on tag pushes like `v1.0.0` and attach it to a draft GitHub Release.
+
 ## Planning Docs
 
 See [docs/planning/README.md](docs/planning/README.md) for the current planning index and implementation direction.

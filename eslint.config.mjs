@@ -5,7 +5,8 @@ const config = [
   {
     ignores: [
       ".next/**",
-      "node_modules/**"
+      "node_modules/**",
+      "release/**"
     ]
   }
 ];

@@ -4,7 +4,12 @@ import path from "node:path";
 import Database from "better-sqlite3";
 import { drizzle, type BetterSQLite3Database } from "drizzle-orm/better-sqlite3";
 
-import { ensureFlyEasyPaths, resolveFlyEasyPaths } from "@/lib/runtime/app-paths";
+import {
+  ensureFlyEasyPaths,
+  resolveBetterSqliteBindingPath,
+  resolveFlyEasyAppRoot,
+  resolveFlyEasyPaths
+} from "@/lib/runtime/app-paths";
 
 import * as schema from "./schema";
 
@@ -15,7 +20,7 @@ let cachedConnection: Database.Database | undefined;
 let migrationsApplied = false;
 
 function resolveMigrationDir() {
-  return path.join(path.resolve(process.cwd()), "drizzle");
+  return path.join(resolveFlyEasyAppRoot(), "drizzle");
 }
 
 function applyPendingMigrations(connection: Database.Database) {
@@ -75,7 +80,9 @@ export function getSqliteConnection() {
   }
 
   const paths = ensureFlyEasyPaths(resolveFlyEasyPaths());
-  const connection = new Database(paths.dbPath);
+  const connection = new Database(paths.dbPath, {
+    nativeBinding: resolveBetterSqliteBindingPath()
+  });
 
   connection.pragma("journal_mode = WAL");
   connection.pragma("foreign_keys = ON");

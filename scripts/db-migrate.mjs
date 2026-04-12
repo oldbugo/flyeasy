@@ -3,15 +3,21 @@ import path from "node:path";
 
 import Database from "better-sqlite3";
 
-import { ensureFlyEasyPaths } from "./lib/flyeasy-paths.mjs";
+import {
+  ensureFlyEasyPaths,
+  resolveBetterSqliteBindingPath,
+  resolveFlyEasyAppRoot
+} from "./lib/flyeasy-paths.mjs";
 
-const root = path.resolve("D:/flyeasy");
+const root = resolveFlyEasyAppRoot();
 const drizzleDir = path.join(root, "drizzle");
 const dbPath = ensureFlyEasyPaths().dbPath;
 
 fs.mkdirSync(drizzleDir, { recursive: true });
 
-const db = new Database(dbPath);
+const db = new Database(dbPath, {
+  nativeBinding: resolveBetterSqliteBindingPath()
+});
 db.pragma("foreign_keys = ON");
 
 db.exec(`

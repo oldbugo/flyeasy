@@ -10,14 +10,20 @@ export function resolveDesktopPaths(app) {
     rootDir,
     artifactsDir: path.join(rootDir, "artifacts"),
     browserStateDir: path.join(rootDir, "playwright-state"),
-    dbPath: path.join(rootDir, "flyeasy.db")
+    dbPath: path.join(rootDir, "flyeasy.db"),
+    playwrightBrowsersDir: path.join(rootDir, "playwright-browsers")
   };
 }
 
 export function ensureDesktopPaths(app) {
   const paths = resolveDesktopPaths(app);
 
-  for (const dirPath of [paths.rootDir, paths.artifactsDir, paths.browserStateDir]) {
+  for (const dirPath of [
+    paths.rootDir,
+    paths.artifactsDir,
+    paths.browserStateDir,
+    paths.playwrightBrowsersDir
+  ]) {
     fs.mkdirSync(dirPath, { recursive: true });
   }
 
