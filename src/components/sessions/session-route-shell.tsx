@@ -12,8 +12,7 @@ import {
   Panel,
   StatBadge,
   cn,
-  getButtonClassName,
-  getPillClassName
+  getButtonClassName
 } from "@/components/shared/ui";
 import { formatMoney } from "@/lib/formatting";
 import { resolveAirportInput, resolveCityInput } from "@/lib/locations/catalog";
@@ -215,11 +214,6 @@ export function SessionWorkspaceShell({
                   ) : (
                     <p className="text-sm text-slate-500">No route data yet</p>
                   )}
-                  {activeRun ? (
-                    <span className={getPillClassName("warning")}>
-                      Active run {activeRun.status}
-                    </span>
-                  ) : null}
                 </div>
               </div>
             </div>

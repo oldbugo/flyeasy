@@ -30,20 +30,6 @@ export default async function NewSessionPage({ searchParams }: NewSessionPagePro
         </p>
       </section>
 
-      <section className="rounded-[28px] border border-dashed border-line bg-white p-8 shadow-sm">
-        <p className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">
-          Suggestion guidance
-        </p>
-        <h2 className="mt-3 text-xl font-semibold tracking-tight text-ink">
-          Constrained suggestions arrive after save
-        </h2>
-        <p className="mt-3 max-w-3xl text-sm leading-7 text-slate-600">
-          Save the session first, then FlyEasy will generate bounded system
-          suggestions that still respect the route, duration, and booking-mode
-          rules you set here.
-        </p>
-      </section>
-
       <SessionForm
         action={createSessionAction}
         formError={formError}

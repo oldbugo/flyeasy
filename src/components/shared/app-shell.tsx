@@ -5,6 +5,7 @@ import { AirplaneTakeoffIcon } from "@phosphor-icons/react/dist/csr/AirplaneTake
 import { CardsThreeIcon } from "@phosphor-icons/react/dist/csr/CardsThree";
 import { GearSixIcon } from "@phosphor-icons/react/dist/csr/GearSix";
 import { HouseIcon } from "@phosphor-icons/react/dist/csr/House";
+import { PlusIcon } from "@phosphor-icons/react/dist/csr/Plus";
 import { PowerIcon } from "@phosphor-icons/react/dist/csr/Power";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
@@ -25,7 +26,10 @@ import {
   SessionNavigationProvider,
   useSessionNavigation
 } from "@/components/sessions/session-navigation-feedback";
-import { getSessionIdFromPathname } from "@/components/sessions/session-loading-descriptor";
+import {
+  getSessionIdFromPathname,
+  normalizeInternalPath
+} from "@/components/sessions/session-loading-descriptor";
 import { DesktopQuitButton } from "@/components/shared/desktop-quit-button";
 import { cn, getIconButtonClassName } from "@/components/shared/ui";
 import { primaryNav } from "@/lib/app-shell/navigation";
@@ -79,6 +83,8 @@ const SIDEBAR_DIMENSIONS = {
 } as const;
 const SIDEBAR_STORAGE_KEY = "flyeasy.sidebar.width";
 const SIDEBAR_SNAP_DURATION_MS = 360;
+const COLLAPSED_SIDEBAR_SESSION_WIDTH =
+  "calc(2.5rem + (var(--sidebar-expand-progress, 0) * 9rem))";
 
 export function AppShell({ children, sessions }: AppShellProps) {
   return (
@@ -90,7 +96,11 @@ export function AppShell({ children, sessions }: AppShellProps) {
 
 function AppShellFrame({ children, sessions }: AppShellProps) {
   const pathname = usePathname();
+  const { pendingHref } = useSessionNavigation();
+  const resolvedPrimaryNavPathname = pendingHref ? normalizeInternalPath(pendingHref) : pathname;
   const isSessionWorkspace = pathname.startsWith("/sessions/");
+  const usesFramelessMainViewport =
+    isSessionWorkspace || pathname === "/" || pathname.startsWith("/settings");
   const [isDragging, setIsDragging] = useState(false);
   const [isSnapAnimating, setIsSnapAnimating] = useState(false);
   const [isSidebarExpandAnimating, setIsSidebarExpandAnimating] = useState(false);
@@ -447,11 +457,7 @@ function AppShellFrame({ children, sessions }: AppShellProps) {
                 {primaryNav.map((item) => (
                   <SidebarNavItem
                     key={item.href}
-                    active={item.matchPrefixes.some((prefix) =>
-                      prefix === "/"
-                        ? pathname === "/" || pathname.startsWith("/sessions")
-                        : pathname.startsWith(prefix)
-                    )}
+                    active={isPrimaryNavItemActive(resolvedPrimaryNavPathname, item.href)}
                     href={item.href}
                     icon={item.icon}
                     label={item.label}
@@ -507,7 +513,7 @@ function AppShellFrame({ children, sessions }: AppShellProps) {
             ref={mainScrollViewportRef}
             className={cn(
               "flyeasy-main-scroll-viewport relative h-full min-h-0 min-w-0 overflow-x-hidden overflow-y-auto",
-              isSessionWorkspace
+              usesFramelessMainViewport
                 ? "bg-transparent px-2 py-1 sm:px-3 xl:px-4"
                 : "rounded-[34px] border border-white/75 bg-white/80 p-4 shadow-[0_18px_48px_rgba(15,23,42,0.06)] backdrop-blur sm:p-5 xl:p-6"
             )}
@@ -1138,7 +1144,7 @@ function SidebarSessionCluster({
         reveal &&
           "motion-reduce:animate-none animate-[sidebar-expanded-cluster-in_360ms_cubic-bezier(0.22,1,0.36,1)_both]",
         condensed
-          ? "mx-auto flex w-fit flex-col items-center gap-3 p-2.5"
+          ? "flex w-fit flex-col items-center gap-3 rounded-[22px] px-1.5 py-2.5"
           : "flex flex-col gap-2.5 p-3"
       )}
     >
@@ -1426,7 +1432,12 @@ const CollapsedSidebarSessionItem = forwardRef<
   ref
 ) {
   return (
-    <div className="relative flex h-10 w-full">
+    <div
+      className="relative flex h-10"
+      style={{
+        width: COLLAPSED_SIDEBAR_SESSION_WIDTH
+      }}
+    >
       <Link
         ref={ref}
         href={session.href as never}
@@ -1435,8 +1446,8 @@ const CollapsedSidebarSessionItem = forwardRef<
         aria-label={`Open session ${session.name}`}
         className={getSidebarSessionIconClassName(active)}
         style={{
-          left: "calc(50% - 1.25rem)",
-          width: "calc(2.5rem + (var(--sidebar-expand-progress, 0) * 9rem))"
+          left: 0,
+          width: COLLAPSED_SIDEBAR_SESSION_WIDTH
         }}
         onClick={(event) => {
           onClickSession(event, session.href);
@@ -1569,7 +1580,13 @@ function CollapsedSidebarSessionStack({
   }
 
   return (
-    <div ref={stackRef} className="relative flex flex-col items-center gap-3 px-0.5 py-0.5">
+    <div
+      ref={stackRef}
+      className="relative flex flex-col items-center gap-3 px-0.5 py-0.5"
+      style={{
+        width: COLLAPSED_SIDEBAR_SESSION_WIDTH
+      }}
+    >
       <span
         aria-hidden
         className={cn(
@@ -1614,7 +1631,7 @@ function SidebarNavItem({
   active: boolean;
   href: string;
   expanded: boolean;
-  icon: "gear" | "house";
+  icon: "gear" | "house" | "plus";
   label: string;
 }) {
   return (
@@ -1650,7 +1667,7 @@ function SidebarItemContent({
 }: {
   active?: boolean;
   expanded: boolean;
-  icon: "gear" | "house" | "power";
+  icon: "gear" | "house" | "plus" | "power";
   label: string;
 }) {
   return (
@@ -1658,13 +1675,13 @@ function SidebarItemContent({
       <span className={getSidebarIconClassName(active, expanded)}>
         <SidebarIcon icon={icon} />
       </span>
-      <span
-        className={cn(
-          "overflow-hidden whitespace-nowrap transition-[max-width,opacity,transform] duration-200 ease-out",
-          expanded ? "max-w-[7rem] translate-x-0 opacity-100" : "-translate-x-1 max-w-0 opacity-0"
-        )}
-      >
-        <span className="block truncate text-[14px] font-semibold tracking-normal">{label}</span>
+        <span
+          className={cn(
+            "overflow-hidden whitespace-nowrap transition-[max-width,opacity,transform] duration-200 ease-out",
+            expanded ? "max-w-[9.5rem] translate-x-0 opacity-100" : "-translate-x-1 max-w-0 opacity-0"
+          )}
+        >
+          <span className="block truncate text-[14px] font-semibold tracking-normal">{label}</span>
       </span>
     </>
   );
@@ -1688,6 +1705,14 @@ function getSidebarItemClassName(
       ? "border-[#D5E8E2] bg-[#E6F4EF] text-ink hover:border-[#CDE7DE] hover:bg-[#E3F4EF] active:border-[#BFDACF] active:bg-[#DCEFE8] focus-visible:border-[#6EE7B7] focus-visible:border-2"
       : "border-line bg-white text-slate-500 hover:border-[#C7D7D2] hover:bg-white active:border-[#CBD5E1] active:bg-[#F8FAFC] focus-visible:border-[#6EE7B7] focus-visible:border-2"
   );
+}
+
+function isPrimaryNavItemActive(pathname: string, href: string) {
+  if (href === "/") {
+    return pathname === "/";
+  }
+
+  return pathname === href || pathname.startsWith(`${href}/`);
 }
 
 function getSidebarIconClassName(active: boolean, expanded: boolean) {
@@ -1938,10 +1963,14 @@ function formatSidebarStopoverSummary(stopovers: SidebarSessionStopover[]) {
 function SidebarIcon({
   icon
 }: {
-  icon: "gear" | "house" | "power";
+  icon: "gear" | "house" | "plus" | "power";
 }) {
   if (icon === "house") {
     return <HouseIcon aria-hidden size={20} weight="regular" />;
+  }
+
+  if (icon === "plus") {
+    return <PlusIcon aria-hidden size={20} weight="regular" />;
   }
 
   if (icon === "gear") {
