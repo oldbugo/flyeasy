@@ -143,15 +143,18 @@ export function SessionStickyControlBar({
         : "Save Changes";
 
   return (
-    <div className={cn("sticky top-3 z-20 pb-2", className)} data-session-sticky-bar>
-      <div
-        className={cn(
-          "flyeasy-sticky-control-group",
-          displayedAction && "flyeasy-sticky-control-group-has-save",
-          saveCapsulePhase === "enter" && "flyeasy-sticky-control-group-enter",
-          saveCapsulePhase === "exit" && "flyeasy-sticky-control-group-exit"
-        )}
-      >
+    <div
+      className={cn("pointer-events-none sticky top-3 z-20 pb-2", className)}
+      data-session-sticky-bar
+    >
+        <div
+          className={cn(
+            "pointer-events-auto mx-auto w-fit max-w-full flyeasy-sticky-control-group",
+            displayedAction && "flyeasy-sticky-control-group-has-save",
+            saveCapsulePhase === "enter" && "flyeasy-sticky-control-group-enter",
+            saveCapsulePhase === "exit" && "flyeasy-sticky-control-group-exit"
+          )}
+        >
         <div
           className={cn(
             "flyeasy-liquid-shell flyeasy-tab-shell w-fit max-w-full px-1.5 py-1.5",

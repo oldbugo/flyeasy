@@ -1,3 +1,6 @@
+import fs from "node:fs";
+import path from "node:path";
+
 import { and, asc, desc, eq } from "drizzle-orm";
 
 import { createId } from "@/lib/db/ids";
@@ -18,6 +21,7 @@ import {
 } from "@/lib/db/schema/run";
 import { refreshStrategyExperimentGroup } from "@/lib/runs/strategy-experiments";
 import { sessions } from "@/lib/db/schema/session";
+import { ensureFlyEasyPaths, resolveFlyEasyPaths } from "@/lib/runtime/app-paths";
 
 const RUN_QUEUE_MS = 2000;
 const RUN_COMPLETE_MS = 8000;
@@ -32,6 +36,53 @@ function elapsedMs(startedAt: string) {
 
 function addMinutes(baseIso: string, minutes: number) {
   return new Date(new Date(baseIso).getTime() + minutes * 60_000).toISOString();
+}
+
+function getAutomationWorkerStatePath() {
+  const paths = ensureFlyEasyPaths(resolveFlyEasyPaths());
+  const runtimeDir = path.join(paths.rootDir, "runtime");
+  fs.mkdirSync(runtimeDir, { recursive: true });
+  return path.join(runtimeDir, "automation-worker.json");
+}
+
+function clearAutomationWorkerStateForRun(runId: string, timestamp: string) {
+  const workerStatePath = getAutomationWorkerStatePath();
+
+  if (!fs.existsSync(workerStatePath)) {
+    return;
+  }
+
+  try {
+    const parsed = JSON.parse(fs.readFileSync(workerStatePath, "utf8")) as {
+      activeRunId?: string | null;
+      status?: string | null;
+    };
+
+    if (
+      parsed.activeRunId !== runId ||
+      !["blocked", "running"].includes(String(parsed.status ?? ""))
+    ) {
+      return;
+    }
+
+    fs.writeFileSync(
+      workerStatePath,
+      JSON.stringify(
+        {
+          activeRunId: null,
+          lastError: null,
+          lastHeartbeatAt: timestamp,
+          startedAt: null,
+          status: "idle"
+        },
+        null,
+        2
+      ),
+      "utf8"
+    );
+  } catch {
+    // Runtime worker-state cleanup should not block run cancellation.
+  }
 }
 
 function formatQueryTypeLabel(queryType: string) {
@@ -418,6 +469,7 @@ export async function stopRun(runId: string) {
   }
 
   const timestamp = nowIso();
+  clearAutomationWorkerStateForRun(runId, timestamp);
 
   db.update(searchRuns)
     .set({

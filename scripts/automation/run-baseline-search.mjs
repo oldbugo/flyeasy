@@ -1722,6 +1722,7 @@ function finalizeRunSuccess(db, runRow, resumed) {
     activeRunId: null,
     lastError: null,
     lastHeartbeatAt: timestamp,
+    pid: null,
     startedAt: null,
     status: "idle"
   });
@@ -5108,6 +5109,7 @@ writeWorkerState({
   activeRunId: runId,
   lastError: null,
   lastHeartbeatAt: nowIso(),
+  pid: process.pid,
   startedAt: nowIso(),
   status: "running"
 });
@@ -5384,6 +5386,7 @@ try {
         activeRunId: runId,
         lastError: null,
         lastHeartbeatAt: nowIso(),
+        pid: process.pid,
         startedAt: nowIso(),
         status: "running"
       });
@@ -7114,6 +7117,7 @@ try {
       activeRunId: null,
       lastError: null,
       lastHeartbeatAt: nowIso(),
+      pid: null,
       startedAt: null,
       status: "idle"
     });
@@ -7221,6 +7225,7 @@ try {
       activeRunId: null,
       lastError: message,
       lastHeartbeatAt: timestamp,
+      pid: null,
       startedAt: null,
       status: blocked ? "blocked" : "failed"
     });

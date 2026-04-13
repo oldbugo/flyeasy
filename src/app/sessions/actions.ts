@@ -1,5 +1,9 @@
 "use server";
 
+import { execFileSync } from "node:child_process";
+import fs from "node:fs";
+import path from "node:path";
+
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 
@@ -17,6 +21,7 @@ import {
   saveSessionStrategySelections
 } from "@/lib/search-strategies/session-strategies";
 import { stopRun } from "@/lib/runs/deterministic-engine";
+import { ensureFlyEasyPaths, resolveFlyEasyPaths } from "@/lib/runtime/app-paths";
 import { computeNextRefreshFromLastRun } from "@/lib/monitoring/refresh";
 import { parseCreateSessionForm, parseUpdateSessionForm } from "@/lib/sessions/form-schema";
 import { dispatchTripcomRunQueue, resumeTripcomRun, startTripcomBaselineRun } from "@/lib/tripcom/automation";
@@ -25,6 +30,76 @@ import { ZodError } from "zod";
 
 function nowIso() {
   return new Date().toISOString();
+}
+
+type AutomationWorkerStateSnapshot = {
+  activeRunId?: string | null;
+  lastError?: string | null;
+  lastHeartbeatAt?: string | null;
+  pid?: number | null;
+  startedAt?: string | null;
+  status?: string | null;
+};
+
+function getAutomationWorkerStatePath() {
+  const paths = ensureFlyEasyPaths(resolveFlyEasyPaths());
+  const runtimeDir = path.join(paths.rootDir, "runtime");
+  fs.mkdirSync(runtimeDir, { recursive: true });
+  return path.join(runtimeDir, "automation-worker.json");
+}
+
+function readAutomationWorkerState(): AutomationWorkerStateSnapshot | null {
+  const workerStatePath = getAutomationWorkerStatePath();
+
+  if (!fs.existsSync(workerStatePath)) {
+    return null;
+  }
+
+  try {
+    return JSON.parse(fs.readFileSync(workerStatePath, "utf8")) as AutomationWorkerStateSnapshot;
+  } catch {
+    return null;
+  }
+}
+
+function writeAutomationWorkerState(snapshot: AutomationWorkerStateSnapshot) {
+  fs.writeFileSync(getAutomationWorkerStatePath(), JSON.stringify(snapshot, null, 2), "utf8");
+}
+
+function terminateAutomationWorkerForRun(runId: string, timestamp = nowIso()) {
+  const snapshot = readAutomationWorkerState();
+
+  if (
+    !snapshot ||
+    snapshot.activeRunId !== runId ||
+    !["blocked", "running"].includes(String(snapshot.status ?? "")) ||
+    typeof snapshot.pid !== "number"
+  ) {
+    return false;
+  }
+
+  try {
+    if (process.platform === "win32") {
+      execFileSync("taskkill.exe", ["/PID", String(snapshot.pid), "/T", "/F"], {
+        stdio: "ignore"
+      });
+    } else {
+      process.kill(snapshot.pid, "SIGTERM");
+    }
+  } catch {
+    // Best-effort process teardown. We still clear runtime state and cancel the run below.
+  }
+
+  writeAutomationWorkerState({
+    activeRunId: null,
+    lastError: null,
+    lastHeartbeatAt: timestamp,
+    pid: null,
+    startedAt: null,
+    status: "idle"
+  });
+
+  return true;
 }
 
 function getFirstValidationMessage(error: ZodError) {
@@ -71,6 +146,7 @@ function getSessionActiveRuns(sessionId: string) {
 function revalidateSessionRunPaths(sessionId: string, runIds: string[] = []) {
   revalidatePath("/");
   revalidatePath(`/sessions/${sessionId}`);
+  revalidatePath(`/sessions/${sessionId}`, "layout");
   revalidatePath(`/sessions/${sessionId}/results`);
   revalidatePath(`/sessions/${sessionId}/history`);
   revalidatePath(`/sessions/${sessionId}/settings`);
@@ -320,6 +396,7 @@ export async function deleteSessionAction(formData: FormData) {
   const activeRuns = getSessionActiveRuns(sessionId);
 
   for (const run of activeRuns) {
+    terminateAutomationWorkerForRun(run.id);
     await stopRun(run.id);
   }
 
@@ -419,10 +496,10 @@ export async function startBaselineRunAction(formData: FormData) {
     startTripcomBaselineRun(createdRun.runId);
   }
 
-  revalidatePath("/");
-  revalidatePath(`/sessions/${sessionId}`);
-  revalidatePath(`/sessions/${sessionId}/results`);
-  revalidatePath(`/sessions/${sessionId}/history`);
+  revalidateSessionRunPaths(
+    sessionId,
+    createdRun ? [createdRun.runId] : experimentSuite?.runs.map((run) => run.runId) ?? []
+  );
   redirect(`/sessions/${sessionId}/results`);
 }
 
@@ -434,6 +511,7 @@ export async function stopRunAction(formData: FormData) {
     redirect("/");
   }
 
+  terminateAutomationWorkerForRun(runId);
   await stopRun(runId);
   dispatchTripcomRunQueue();
 
@@ -455,6 +533,7 @@ export async function stopCurrentSessionRunAction(formData: FormData) {
     redirect(returnTo as never);
   }
 
+  terminateAutomationWorkerForRun(currentRun.id);
   await stopRun(currentRun.id);
   dispatchTripcomRunQueue();
 
@@ -473,6 +552,7 @@ export async function stopAndClearSessionQueueAction(formData: FormData) {
   const activeRuns = getSessionActiveRuns(sessionId);
 
   for (const run of activeRuns) {
+    terminateAutomationWorkerForRun(run.id);
     await stopRun(run.id);
   }
 
@@ -608,10 +688,10 @@ export async function rerunSessionAction(formData: FormData) {
     startTripcomBaselineRun(createdRun.runId);
   }
 
-  revalidatePath("/");
-  revalidatePath(`/sessions/${sessionId}`);
-  revalidatePath(`/sessions/${sessionId}/results`);
-  revalidatePath(`/sessions/${sessionId}/history`);
+  revalidateSessionRunPaths(
+    sessionId,
+    createdRun ? [createdRun.runId] : experimentSuite?.runs.map((run) => run.runId) ?? []
+  );
   redirect(`/sessions/${sessionId}/results`);
 }
 
@@ -625,12 +705,8 @@ export async function resumeBlockedRunAction(formData: FormData) {
 
   resumeTripcomRun(runId);
 
-  revalidatePath("/");
   revalidatePath(`/settings`);
-  revalidatePath(`/sessions/${sessionId}`);
-  revalidatePath(`/sessions/${sessionId}/results`);
-  revalidatePath(`/sessions/${sessionId}/history`);
-  revalidatePath(`/sessions/${sessionId}/runs/${runId}`);
+  revalidateSessionRunPaths(sessionId, [runId]);
   redirect(`/sessions/${sessionId}/results`);
 }
 

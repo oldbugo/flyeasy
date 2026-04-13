@@ -149,6 +149,7 @@ export function SessionWorkspaceShell({
   sessionTripSummary = null
 }: SessionWorkspaceShellProps) {
   const showClearAllRunsButton = activeRunCount > 1;
+  const showStopCurrentRunButton = Boolean(activeRun) && !showClearAllRunsButton;
   const hasCurrentBestFare =
     typeof currentBestFare?.amount === "number" && Boolean(currentBestFare?.currency);
   const bestFareLabel = formatMoney(currentBestFare?.currency ?? null, currentBestFare?.amount ?? null);
@@ -221,7 +222,7 @@ export function SessionWorkspaceShell({
             <div className="relative z-0 flex flex-col gap-4 lg:-mt-8 lg:flex-row lg:items-end lg:gap-6 xl:-mt-10">
               {activeRun || showClearAllRunsButton ? (
                 <div className="flex flex-wrap gap-3 lg:max-w-[32rem] lg:flex-none xl:max-w-[48rem]">
-                  {activeRun ? (
+                  {showStopCurrentRunButton ? (
                     <form action={stopCurrentSessionRunAction}>
                       <input type="hidden" name="sessionId" value={sessionId} />
                       <SessionCurrentPathInput fallback={`/sessions/${sessionId}`} />
