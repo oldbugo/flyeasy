@@ -140,6 +140,12 @@ export async function waitFor(check, { timeoutMs = 60_000, intervalMs = 500 } = 
   throw new Error(`Condition not met within ${timeoutMs}ms.`);
 }
 
+// Best-effort: a process that is still shutting down can hold files open on
+// Windows, and a leftover folder under .tmp/ should never fail a test.
 export function removeDataDir(dataDir) {
-  fs.rmSync(dataDir, { force: true, maxRetries: 5, recursive: true, retryDelay: 200 });
+  try {
+    fs.rmSync(dataDir, { force: true, maxRetries: 10, recursive: true, retryDelay: 300 });
+  } catch (error) {
+    console.warn(`Could not remove test data ${dataDir}: ${error.message}`);
+  }
 }

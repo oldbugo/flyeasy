@@ -1,7 +1,7 @@
 "use client";
 
 import type { ReactNode } from "react";
-import { useTransition } from "react";
+import { useSyncExternalStore, useTransition } from "react";
 
 import { getButtonClassName } from "@/components/shared/ui";
 
@@ -15,6 +15,15 @@ declare global {
   }
 }
 
+function isDesktopRuntime() {
+  const inElectron = navigator.userAgent.toLowerCase().includes("electron");
+  const hasBridge = typeof window.flyeasyDesktop?.quitApp === "function";
+
+  return inElectron || hasBridge;
+}
+
+const subscribeToNothing = () => () => {};
+
 type DesktopQuitButtonProps = {
   className?: string;
   children?: ReactNode;
@@ -27,11 +36,9 @@ export function DesktopQuitButton({
   pendingChildren
 }: DesktopQuitButtonProps) {
   const [isPending, startTransition] = useTransition();
-  const hasWindow = typeof window !== "undefined";
-  const inElectron =
-    typeof navigator !== "undefined" && navigator.userAgent.toLowerCase().includes("electron");
-  const hasBridge = hasWindow && typeof window.flyeasyDesktop?.quitApp === "function";
-  const available = inElectron || hasBridge;
+  // The server cannot see Electron, so it renders nothing; the server snapshot
+  // keeps the first client render identical and the button appears right after.
+  const available = useSyncExternalStore(subscribeToNothing, isDesktopRuntime, () => false);
 
   if (!available) {
     return null;

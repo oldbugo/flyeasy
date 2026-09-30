@@ -46,11 +46,12 @@ npx playwright install chromium
 npm test
 ```
 
-`npm test` runs everything (about 2 minutes). Parts can be run on their own:
+`npm test` builds the app and runs everything (about 2.5 minutes). Parts can be run on their own:
 
 - `npm run test:unit`: fast checks for block detection, flight-data decoding and progress summaries
 - `npm run test:browser`: result-page helpers and the card parser against saved Trip.com pages
 - `npm run test:worker`: the real search worker and queue dispatcher, end to end
+- `npm run test:app`: builds the app, then opens every page as a plain browser and as the Electron window and fails on any console error (such as React hydration mismatches)
 
 The browser and worker tests never contact Trip.com. They use a local fake site (`tests/support/fake-tripcom.mjs`) that serves saved result pages from `tests/fixtures/tripcom/`, and each test gets its own data folder under `.tmp/tests/` with a fresh database. Set `FLYEASY_KEEP_TEST_DATA=1` to keep those folders for inspection.
 
@@ -66,7 +67,7 @@ FlyEasy can now be packaged as a Windows installer:
 - `release/win-unpacked/FlyEasy.exe` runs the built app directly; keep the entire `win-unpacked` folder together.
 - Native dependencies are built for the bundled Node runtime. Electron Builder's automatic Electron ABI rebuild is disabled because SQLite runs in the separate Node server.
 
-After packaging, `npm run proof:desktop` checks the executable, preload bridge, local database, main pages, and server shutdown using an isolated `.tmp/` data folder. Set `FLYEASY_SMOKE_BROWSER_CACHE` to an existing Playwright browser cache to reuse its Chromium installation during this check.
+After packaging, `npm run proof:desktop` checks the executable, preload bridge, local database, main pages (including errors logged in the window), and server shutdown using an isolated `.tmp/` data folder. Set `FLYEASY_SMOKE_BROWSER_CACHE` to an existing Playwright browser cache to reuse its Chromium installation during this check.
 
 GitHub Actions in [.github/workflows/windows-release.yml](.github/workflows/windows-release.yml) will build the installer on tag pushes like `v1.0.0` and attach it to a draft GitHub Release.
 

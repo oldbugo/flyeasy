@@ -23,6 +23,14 @@ const desktop = await electron.launch({ executablePath, env, timeout: 60_000 });
 let serverUrl;
 try {
   const page = await desktop.firstWindow();
+  // Errors such as hydration mismatches only appear inside the Electron window.
+  const pageProblems = [];
+  page.on("console", (message) => {
+    if (message.type() === "error") {
+      pageProblems.push(`console: ${message.text().split("\n")[0]}`);
+    }
+  });
+  page.on("pageerror", (error) => pageProblems.push(`page error: ${error.message.split("\n")[0]}`));
   await page.waitForURL(/^http:\/\/127\.0\.0\.1:/, { timeout: 120_000 });
   serverUrl = new URL(page.url()).origin;
   await page.getByRole("navigation").getByRole("link", { name: "Settings", exact: true }).waitFor();
@@ -32,7 +40,9 @@ try {
     const response = await page.goto(`${serverUrl}${route}`);
     assert.equal(response.status(), 200, route);
     assert.ok((await page.locator("body").innerText()).length > 100, route);
+    await page.waitForTimeout(1_000);
   }
+  assert.deepEqual(pageProblems, [], "the desktop window logged errors");
   assert.ok(fs.existsSync(path.join(dataDir, "flyeasy.db")));
   await page.screenshot({ path: path.join(dataDir, "desktop.png") });
   console.log(`Desktop startup, preload, SQLite, and routes passed. Screenshot: ${dataDir}/desktop.png`);
