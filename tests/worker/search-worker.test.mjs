@@ -66,6 +66,31 @@ test("loads each results page once per date pair (goes back between outbound bra
     assert.equal(fake.requestCounts["/flights/showfarenext"], 4, "two outbound branches per date pair");
   }));
 
+test("handles Trip.com-style in-page navigation when going back", TEST_TIMEOUT, () =>
+  withFake("spa-navigation", async (fake) => {
+    const dataDir = newDataDir("worker-spa");
+    const { output } = await runWorker(automationEnv(dataDir, fake.origin));
+    const run = readRun(dataDir);
+
+    assert.equal(run.status, "completed", run.failure_reason ?? output);
+    assert.equal(run.total_candidates_found, 8, "same fares as with full page loads");
+    assert.ok(readQueries(dataDir).every((query) => query.status === "completed"));
+    assert.equal(fake.requestCounts["/flights/showfarefirst"], 2, "no reloads needed");
+
+    // Both branches must pick outbound flights. Reading the lingering
+    // return-stage cards made branch 2 pick a return flight (Hainan, 1,982).
+    for (const query of readQueries(dataDir)) {
+      const branches = JSON.parse(query.result_summary_json).outboundBranchSummaries.map((branch) => [
+        branch.selectedOutboundPrice,
+        branch.selectedOutboundAirline
+      ]);
+      assert.deepEqual(branches, [
+        [1829, "China Southern Airlines"],
+        [1829, "China Southern Airlines"]
+      ]);
+    }
+  }));
+
 test("reloads the search when going back cannot reach the outbound list", TEST_TIMEOUT, () =>
   withFake("select-replaces-history", async (fake) => {
     const dataDir = newDataDir("worker-reload-fallback");

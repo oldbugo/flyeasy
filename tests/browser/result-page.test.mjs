@@ -8,7 +8,9 @@ import { chromium } from "playwright";
 
 import { createFlightDataRecorder } from "../../scripts/automation/lib/flight-data-capture.mjs";
 import {
+  countRenderedCards,
   readFirstCardSignature,
+  renderResultCards,
   returnToOutboundResults,
   waitForCardsToSettle
 } from "../../scripts/automation/lib/result-page.mjs";
@@ -48,15 +50,36 @@ test("parses outbound cards from a saved Trip.com results page", () =>
     await page.goto(`${fake.origin}/flights/showfarefirst`);
     const cards = await parseVisibleCards(page, "outbound_results", 80);
 
-    // Trip.com renders the first cards and leaves the rest as empty
-    // placeholders until scrolled; the worker scrolls to fill them.
-    const rendered = cards.filter((card) => card.rawText);
-    assert.equal(cards.length, 30);
-    assert.equal(rendered.length, 8);
+    // Trip.com fills in the first 8 cards; the other 22 are empty placeholders
+    // until scrolled into view, and the parser skips them.
+    assert.equal(cards.length, 8);
     assert.equal(cards[0].priceAmount, 1652);
     assert.equal(cards[0].priceText, "AU$ 1,652");
     assert.match(cards[0].airline, /Batik Air Malaysia/);
-    assert.ok(rendered.every((card) => Number.isFinite(card.priceAmount)), "rendered cards have prices");
+    assert.ok(cards.every((card) => Number.isFinite(card.priceAmount)), "every card has a price");
+  }));
+
+test("scrolling fills in placeholder cards up to the scan limit, then returns to the top", () =>
+  withPage(async (page) => {
+    await page.goto(`${fake.origin}/flights/showfarefirst`);
+    assert.equal(await countRenderedCards(page), 8);
+
+    assert.equal(await renderResultCards(page, 80), 30, "all 30 cards on the page");
+    assert.equal((await parseVisibleCards(page, "outbound_results", 80)).length, 30);
+    assert.equal(await page.evaluate(() => window.scrollY), 0);
+
+    await page.reload();
+    assert.equal(await renderResultCards(page, 16), 16, "stops once the limit is reached");
+  }));
+
+test("parses airline names from Trip.com's redesigned cards", () =>
+  withPage(async (page) => {
+    await page.goto(`${fake.origin}/fixtures/redesigned-card`);
+    const [card] = await parseVisibleCards(page, "outbound_results", 5);
+
+    assert.equal(card.airline, "TransNusa, China Southern Airlines");
+    assert.equal(card.airlineCode, "8B");
+    assert.equal(card.priceAmount, 1199);
   }));
 
 test("parses return cards and stopover filter options", () =>
@@ -70,7 +93,7 @@ test("parses return cards and stopover filter options", () =>
 
     await page.goto(`${fake.origin}/flights/showfarenext`);
     const returns = await parseVisibleCards(page, "return_results", 60);
-    assert.equal(returns.length, 25);
+    assert.equal(returns.length, 8, "8 filled cards; the rest are placeholders");
     assert.equal(returns[0].priceAmount, 1829);
   }));
 
@@ -112,22 +135,43 @@ test("going back from the return stage restores the outbound list", () =>
     assert.equal(await readFirstCardSignature(page), outboundSignature);
   }));
 
+test("going back waits out lingering return-stage cards (in-page navigation, like Trip.com)", async () => {
+  const spaFake = await startFakeTripcom({ mode: "spa-navigation" });
+
+  try {
+    await withPage(async (page) => {
+      await page.goto(`${spaFake.origin}/flights/showfarefirst?ddate=2026-12-18`);
+      const outboundSignature = await readFirstCardSignature(page);
+      await page.locator('[data-testid="u_select_btn"]').first().click();
+      await page.waitForURL(/showfarenext/);
+      await page.waitForFunction(
+        (outbound) => document.querySelector('[data-testid^="u-flight-card-"]')?.innerText.replace(/\s+/g, " ").trim() !== outbound,
+        outboundSignature
+      );
+
+      assert.equal(await returnToOutboundResults(page), true);
+      assert.equal(await readFirstCardSignature(page), outboundSignature, "outbound cards, not the lingering return cards");
+    });
+  } finally {
+    await spaFake.close();
+  }
+});
+
 test("going back reports failure when there is no outbound page to return to", () =>
   withPage(async (page) => {
     await page.goto(`${fake.origin}/flights/showfarenext`);
     const started = Date.now();
 
-    assert.equal(await returnToOutboundResults(page), false);
-    assert.ok(Date.now() - started < 5_000, "falls back to a reload quickly");
+    assert.equal(await returnToOutboundResults(page, { timeoutMs: 3_000 }), false);
+    assert.ok(Date.now() - started < 6_000, "gives up after its time limit");
   }));
 
-test("going back to a blocked page still hands over to the normal results wait", () =>
+test("going back to a blocked page gives up so the worker reloads and detects the block", () =>
   withPage(async (page) => {
-    // The worker's results wait then detects the block (covered by the worker tests).
     await page.goto(`${blockedFake.origin}/flights/showfarefirst`);
     await page.goto(`${blockedFake.origin}/flights/showfarenext`);
 
-    assert.equal(await returnToOutboundResults(page), true);
+    assert.equal(await returnToOutboundResults(page, { timeoutMs: 3_000 }), false);
     assert.equal(await readFirstCardSignature(page), null, "no cards, and no 30s wait for them");
   }));
 

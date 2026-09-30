@@ -41,6 +41,7 @@ import { createFlightDataRecorder } from "./lib/flight-data-capture.mjs";
 import {
   readFirstCardSignature,
   readVisibleCardSignatureList,
+  renderResultCards,
   returnToOutboundResults,
   waitForCardsToSettle
 } from "./lib/result-page.mjs";
@@ -833,6 +834,24 @@ async function tryAppendStageArtifacts(page, runDir, stageName, notesPrefix, art
   } catch {
     // Best-effort failure evidence should not hide the original automation error.
   }
+}
+
+// Save what a failed search's page showed before the page is closed.
+// Timeouts already saved their own evidence.
+async function captureQueryFailureEvidence(page, queryExecutionId, error, runDir, artifactRecords) {
+  const message = error instanceof Error ? error.message : String(error);
+
+  if (/Evidence: timeout-/.test(message) || page.isClosed()) {
+    return;
+  }
+
+  await tryAppendStageArtifacts(
+    page,
+    runDir,
+    `query-${queryExecutionId}-failure`,
+    `Failed Trip.com search (${message.slice(0, 120)})`,
+    artifactRecords
+  );
 }
 
 // Full-page screenshots of healthy stages are slow and only useful for
@@ -2843,6 +2862,7 @@ function summarizeCardConstraintRejections(filterResult) {
 }
 
 async function parseEligibleVisibleCards(page, stageName, limit, runRow) {
+  await renderResultCards(page, limit);
   const scannedCards = sortCardsByPrice(await parseVisibleCards(page, stageName, limit));
   const filterResult = filterCardsForRunConstraints(scannedCards, runRow);
 
@@ -4415,6 +4435,9 @@ async function executeAnchoredMultiCityQuery({
     );
 
     return createdCandidates;
+  } catch (error) {
+    await captureQueryFailureEvidence(rootPage, queryExecutionId, error, runDir, artifactRecords);
+    throw error;
   } finally {
     await rootPage.close().catch(() => {});
   }
@@ -4663,6 +4686,9 @@ async function executeDirectQuery({
       },
       outboundResultUrl: outboundStage.lastUrl
     };
+  } catch (error) {
+    await captureQueryFailureEvidence(queryPage, queryExecutionId, error, runDir, artifactRecords);
+    throw error;
   } finally {
     await queryPage.close().catch(() => {});
   }
@@ -4856,6 +4882,9 @@ async function executeReturnOptionExpansionQuery({
       createdCandidates,
       observedStopovers
     };
+  } catch (error) {
+    await captureQueryFailureEvidence(activePage, queryExecutionId, error, runDir, artifactRecords);
+    throw error;
   } finally {
     if (activePage !== queryPage) {
       await activePage.close().catch(() => {});
@@ -5091,6 +5120,9 @@ async function executeStopoverFollowupQuery({
     finalizeQuerySummary(db, queryExecutionId, summary, [], queryInput.baseResultUrl);
 
     return createdCandidates;
+  } catch (error) {
+    await captureQueryFailureEvidence(queryPage, queryExecutionId, error, runDir, artifactRecords);
+    throw error;
   } finally {
     await queryPage.close().catch(() => {});
   }
@@ -5196,9 +5228,10 @@ try {
     });
   } catch (launchError) {
     const detail = launchError instanceof Error ? launchError.message.split("\n")[0] : String(launchError);
+    const missingPath = detail.match(/Executable doesn't exist at (.+)$/i)?.[1]?.trim();
     throw new Error(
-      /Executable doesn't exist/i.test(detail)
-        ? "Could not start the automation browser: Playwright Chromium is not installed. Run `npx playwright install chromium`, or restart the FlyEasy desktop app to reinstall it."
+      missingPath
+        ? `Could not start the automation browser: Playwright Chromium is not installed (looked for ${missingPath}). Run \`npx playwright install chromium\`, or restart the FlyEasy desktop app to reinstall it.`
         : `Could not start the automation browser: ${detail}`
     );
   }

@@ -297,7 +297,10 @@ export async function parseVisibleCards(page, stageName, limit = 6) {
 
       return {
         accessibilitySummary,
-        airline: textOf(node, '[data-testid="flights-name"]'),
+        // Older cards mark the name with a test id; the redesigned cards
+        // (seen from late Sept 2026) only use the "flight-name" class.
+        airline:
+          textOf(node, '[data-testid="flights-name"]') ?? textOf(node, ".airline-info .flight-name"),
         airlineCode: parseAirlineCode(node),
         baggageSummary,
         cardIndex: index + 1,
@@ -316,7 +319,9 @@ export async function parseVisibleCards(page, stageName, limit = 6) {
           .filter(Boolean)
       };
     });
-  }, { maxCards: limit, stage: stageName });
+  }, { maxCards: limit, stage: stageName })
+    // Cards that have not been scrolled into view yet are empty placeholders.
+    .then((cards) => cards.filter((card) => card.rawText));
 }
 
 export function inferStopCount(stopText) {

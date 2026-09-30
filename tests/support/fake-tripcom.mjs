@@ -18,12 +18,42 @@ document.addEventListener("click", (event) => {
   }
   if (event.target.closest('[data-testid="u_select_btn"]') && location.pathname.endsWith("/showfarefirst")) {
     const next = "/flights/showfarenext" + location.search;
-    if (window.__FAKE_REPLACE_HISTORY__) {
+    if (window.__FAKE_SPA__) {
+      // Like Trip.com: switch to the return stage inside the page.
+      window.__outboundBody = window.__outboundBody ?? document.body.innerHTML;
+      fetch(next).then((response) => response.text()).then((html) => {
+        history.pushState({}, "", next);
+        document.body.innerHTML = new DOMParser().parseFromString(html, "text/html").body.innerHTML;
+      });
+    } else if (window.__FAKE_REPLACE_HISTORY__) {
       location.replace(next);
     } else {
       location.assign(next);
     }
   }
+});
+// Like Trip.com, only the first cards have content; scrolling fills in the
+// next batch of empty placeholders (reusing content of cards already shown).
+window.addEventListener("scroll", () => {
+  const cards = [...document.querySelectorAll('[data-testid^="u-flight-card-"]')];
+  const filled = cards.filter((node) => node.innerText.trim());
+  const empty = cards.filter((node) => !node.innerText.trim()).slice(0, 8);
+  empty.forEach((node, index) => {
+    node.innerHTML = filled[index % filled.length]?.innerHTML ?? "";
+  });
+}, { passive: true });
+window.addEventListener("popstate", () => {
+  if (!window.__FAKE_SPA__ || !window.__outboundBody) {
+    return;
+  }
+  // Going back leaves the return-stage cards on screen for a moment, then the
+  // list empties and the outbound results come back.
+  setTimeout(() => {
+    document.body.innerHTML = "<p>Loading flights...</p>";
+  }, 4000);
+  setTimeout(() => {
+    document.body.innerHTML = window.__outboundBody;
+  }, 5000);
 });
 fetch("/restapi/soa2/27015/FlightListSearchSSE", { method: "POST", body: "{}" });
 </script>`;
@@ -37,10 +67,12 @@ const BLOCK_PAGE = "<html><body><pre>whaleguard block</pre></body></html>";
 const EMPTY_RESULTS_PAGE = `<!doctype html><html><head><title>Flights | Trip.com</title></head>
 <body><p>Loading flights...</p></body></html>`;
 
-const withScript = (html, { replaceHistory = false } = {}) =>
+const withScript = (html, { replaceHistory = false, spa = false } = {}) =>
   html.replace(
     /<\/body>/i,
-    `${replaceHistory ? "<script>window.__FAKE_REPLACE_HISTORY__ = true;</script>" : ""}${INTERACTION_SCRIPT}</body>`
+    `${replaceHistory ? "<script>window.__FAKE_REPLACE_HISTORY__ = true;</script>" : ""}${
+      spa ? "<script>window.__FAKE_SPA__ = true;</script>" : ""
+    }${INTERACTION_SCRIPT}</body>`
   );
 
 /**
@@ -51,11 +83,14 @@ const withScript = (html, { replaceHistory = false } = {}) =>
  *  - "no-results-ever": result pages never show flight cards (timeouts)
  *  - "select-replaces-history": selecting a flight replaces the history entry,
  *    so going back cannot return to the outbound list
+ *  - "spa-navigation": like the real site, the return stage opens inside the
+ *    page and going back briefly leaves the return-stage cards on screen
  */
 export async function startFakeTripcom({ mode = "normal" } = {}) {
   const pages = {
     outbound: withScript(readFixture("outbound-results.html"), {
-      replaceHistory: mode === "select-replaces-history"
+      replaceHistory: mode === "select-replaces-history",
+      spa: mode === "spa-navigation"
     }),
     return: withScript(readFixture("return-results.html"))
   };
@@ -72,6 +107,10 @@ export async function startFakeTripcom({ mode = "normal" } = {}) {
 
     if (pathname.endsWith("/FlightListSearchSSE")) {
       return send(FLIGHT_LIST_STREAM, "text/event-stream");
+    }
+
+    if (pathname === "/fixtures/redesigned-card") {
+      return send(readFixture("redesigned-card.html"));
     }
 
     if (mode === "blocked") {

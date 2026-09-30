@@ -1,9 +1,11 @@
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import http from "node:http";
 import net from "node:net";
 import { createRequire } from "node:module";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+
+import { ensureFlyEasyPaths } from "./lib/flyeasy-paths.mjs";
 
 const require = createRequire(import.meta.url);
 const appRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -41,8 +43,27 @@ function waitForUrl(targetUrl, timeoutMs) {
   });
 }
 
+// Use FlyEasy's own browser folder, as the packaged app does, instead of
+// Playwright's shared default (which some terminals cannot read).
+const { playwrightBrowsersDir } = ensureFlyEasyPaths();
+const runtimeEnv = {
+  ...process.env,
+  PLAYWRIGHT_BROWSERS_PATH: process.env.PLAYWRIGHT_BROWSERS_PATH ?? playwrightBrowsersDir
+};
+const browserSetup = spawnSync(
+  process.execPath,
+  [path.join(appRoot, "scripts/runtime/ensure-playwright-browser.mjs")],
+  { cwd: appRoot, env: runtimeEnv, stdio: "inherit", windowsHide: true }
+);
+
+if (browserSetup.status !== 0) {
+  console.error("Could not prepare Playwright Chromium for the automation worker.");
+  process.exit(browserSetup.status ?? 1);
+}
+
 const web = spawn(process.execPath, [require.resolve("next/dist/bin/next"), "dev", "--hostname", "127.0.0.1", "--port", String(port)], {
   cwd: appRoot,
+  env: runtimeEnv,
   stdio: "inherit",
   windowsHide: true
 });
@@ -72,7 +93,7 @@ web.on("exit", (code) => {
 try {
   await waitForUrl(url, 60_000);
 
-  const electronEnv = { ...process.env, FLYEASY_RENDERER_URL: url };
+  const electronEnv = { ...runtimeEnv, FLYEASY_RENDERER_URL: url };
   delete electronEnv.ELECTRON_RUN_AS_NODE;
   electron = spawn(require("electron"), [path.join(appRoot, "src/desktop/main/main.mjs")], {
     cwd: appRoot,
