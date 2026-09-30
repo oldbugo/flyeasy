@@ -1,6 +1,6 @@
 {
   "name": "flyeasy",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "author": "FlyEasy",
   "description": "Local-first desktop travel-hunt app for Trip.com flight search and verification.",
   "private": true,
@@ -22,6 +22,8 @@
     "db:generate": "node scripts/db-generate.mjs",
     "db:migrate": "node scripts/db-migrate.mjs",
     "proof:install-browser": "npx playwright install chromium",
+    "proof:desktop": "node scripts/proofs/desktop-smoke.mjs",
+    "proof:run-lifecycle": "node scripts/proofs/run-lifecycle-refresh.mjs",
     "proof:session-probe": "node scripts/proofs/session-probe.mjs",
     "proof:packaged-search": "node scripts/proofs/packaged-search-extraction.mjs",
     "proof:deep-verification": "node scripts/proofs/deep-verification-boundary.mjs",
@@ -60,6 +62,7 @@
     "appId": "com.flyeasy.app",
     "artifactName": "FlyEasy-Setup-${version}.${ext}",
     "asar": true,
+    "npmRebuild": false,
     "directories": {
       "output": "release"
     },
@@ -122,7 +125,8 @@
     ],
     "files": [
       "package.json",
-      "src/desktop/**/*"
+      "src/desktop/**/*",
+      "!node_modules{,/**/*}"
     ],
     "nsis": {
       "oneClick": false,

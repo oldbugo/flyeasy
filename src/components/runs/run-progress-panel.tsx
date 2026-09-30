@@ -15,6 +15,10 @@ import {
   BaselineMarketInsights,
   type BaselineMarketSummary
 } from "@/components/insights/baseline-market-insights";
+import {
+  isTerminalRunStatus,
+  useRunLifecycleRefresh
+} from "@/components/runs/use-run-lifecycle-refresh";
 
 type RunProgressPayload = {
   analysisSnapshots: Array<{
@@ -111,6 +115,8 @@ export function RunProgressPanel({ initialData, runId }: RunProgressPanelProps) 
   const [_, startTransition] = useTransition();
   const inflightRef = useRef(false);
   const lastFingerprintRef = useRef(fingerprintRunProgress(initialData));
+
+  useRunLifecycleRefresh(data.run.status);
   const baselineExecutionSnapshot = data.analysisSnapshots.find(
     (snapshot) => snapshot.analysisType === "baseline_execution_efficiency"
   );
@@ -354,11 +360,7 @@ export function RunProgressPanel({ initialData, runId }: RunProgressPanelProps) 
   };
 
   useEffect(() => {
-    if (
-      data.run.status === "completed" ||
-      data.run.status === "cancelled" ||
-      data.run.status === "failed"
-    ) {
+    if (isTerminalRunStatus(data.run.status)) {
       return;
     }
 

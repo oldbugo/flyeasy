@@ -74,8 +74,27 @@ function parseIsoMs(value) {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
+function isProcessAlive(pid) {
+  const normalizedPid = Number(pid);
+
+  if (!Number.isInteger(normalizedPid) || normalizedPid <= 0) {
+    return false;
+  }
+
+  try {
+    process.kill(normalizedPid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 function isWorkerStateActive(workerState) {
-  return Boolean(workerState && ["running", "blocked"].includes(workerState.status ?? ""));
+  if (workerState?.status === "blocked") {
+    return true;
+  }
+
+  return workerState?.status === "running" && isProcessAlive(workerState.pid);
 }
 
 function usesTripcomWorker(strategyPayloadJson) {
@@ -253,7 +272,7 @@ function spawnWorker(runId, resumeRequested) {
 function main() {
   const workerState = readWorkerState();
 
-  if (workerState && ["running", "blocked"].includes(workerState.status ?? "")) {
+  if (isWorkerStateActive(workerState)) {
     return;
   }
 

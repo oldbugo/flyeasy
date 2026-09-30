@@ -6,6 +6,9 @@ import { listSessionsForDashboard } from "@/lib/db/queries/sessions";
 
 import "./globals.css";
 
+// The shared shell reads this installation's database, never build-time data.
+export const dynamic = "force-dynamic";
+
 export const metadata: Metadata = {
   title: "FlyEasy",
   description: "Local-first desktop travel-hunt workspace for Trip.com searches."

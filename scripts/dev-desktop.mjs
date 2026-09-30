@@ -1,8 +1,21 @@
 import { spawn } from "node:child_process";
 import http from "node:http";
+import net from "node:net";
+import { createRequire } from "node:module";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 
-const url = "http://127.0.0.1:3000";
-const npmCmd = process.platform === "win32" ? "npm.cmd" : "npm";
+const require = createRequire(import.meta.url);
+const appRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const port = await new Promise((resolve, reject) => {
+  const server = net.createServer();
+  server.on("error", reject);
+  server.listen(0, "127.0.0.1", () => {
+    const { port } = server.address();
+    server.close((error) => error ? reject(error) : resolve(port));
+  });
+});
+const url = `http://127.0.0.1:${port}`;
 
 function waitForUrl(targetUrl, timeoutMs) {
   const startedAt = Date.now();
@@ -28,30 +41,50 @@ function waitForUrl(targetUrl, timeoutMs) {
   });
 }
 
-const web = spawn(npmCmd, ["run", "dev"], {
+const web = spawn(process.execPath, [require.resolve("next/dist/bin/next"), "dev", "--hostname", "127.0.0.1", "--port", String(port)], {
+  cwd: appRoot,
   stdio: "inherit",
-  shell: false
+  windowsHide: true
 });
 
+let electron;
 const shutdown = () => {
   if (!web.killed) {
     web.kill();
+  }
+  if (electron && !electron.killed) {
+    electron.kill();
   }
 };
 
 process.on("SIGINT", shutdown);
 process.on("SIGTERM", shutdown);
+web.on("error", (error) => {
+  console.error(error);
+  shutdown();
+  process.exit(1);
+});
+web.on("exit", (code) => {
+  shutdown();
+  process.exit(code ?? 1);
+});
 
 try {
   await waitForUrl(url, 60_000);
 
-  const electron = spawn(npmCmd, ["run", "electron"], {
+  const electronEnv = { ...process.env, FLYEASY_RENDERER_URL: url };
+  delete electronEnv.ELECTRON_RUN_AS_NODE;
+  electron = spawn(require("electron"), [path.join(appRoot, "src/desktop/main/main.mjs")], {
+    cwd: appRoot,
     stdio: "inherit",
-    shell: false,
-    env: {
-      ...process.env,
-      FLYEASY_RENDERER_URL: url
-    }
+    windowsHide: true,
+    env: electronEnv
+  });
+
+  electron.on("error", (error) => {
+    console.error(error);
+    shutdown();
+    process.exit(1);
   });
 
   electron.on("exit", (code) => {

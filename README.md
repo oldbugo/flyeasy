@@ -46,6 +46,10 @@ FlyEasy can now be packaged as a Windows installer:
 - `npm run dist:win` builds a Windows `.exe` installer into `release/`
 - the packaged app starts its own local Next.js server through a bundled Node runtime instead of depending on `next dev`
 - Playwright Chromium is installed on first launch into the user's FlyEasy app-data directory so the installer stays smaller
+- `release/win-unpacked/FlyEasy.exe` runs the built app directly; keep the entire `win-unpacked` folder together.
+- Native dependencies are built for the bundled Node runtime. Electron Builder's automatic Electron ABI rebuild is disabled because SQLite runs in the separate Node server.
+
+After packaging, `npm run proof:desktop` checks the executable, preload bridge, local database, main pages, and server shutdown using an isolated `.tmp/` data folder. Set `FLYEASY_SMOKE_BROWSER_CACHE` to an existing Playwright browser cache to reuse its Chromium installation during this check.
 
 GitHub Actions in [.github/workflows/windows-release.yml](.github/workflows/windows-release.yml) will build the installer on tag pushes like `v1.0.0` and attach it to a draft GitHub Release.
 

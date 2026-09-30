@@ -358,6 +358,7 @@ function runNodeScript(scriptPath, envOverrides = {}) {
     const child = spawn(nodeExecutablePath, [scriptPath], {
       cwd: path.dirname(scriptPath),
       env: getNodeRuntimeEnv(envOverrides),
+      windowsHide: true,
       stdio: "ignore"
     });
 
@@ -403,6 +404,7 @@ async function startRuntimeBackend() {
     const nodeExecutablePath = getNodeExecutablePath();
     const child = spawn(nodeExecutablePath, [serverScriptPath], {
       cwd: appRoot,
+      windowsHide: true,
       env: getNodeRuntimeEnv({
         FLYEASY_APP_ROOT: appRoot,
         FLYEASY_DATA_DIR: paths.rootDir,

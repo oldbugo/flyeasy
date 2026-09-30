@@ -4,6 +4,10 @@ import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 
 import { CandidateFlightVisualSection } from "@/components/candidates/candidate-flight-visual-section";
 import {
+  isTerminalRunStatus,
+  useRunLifecycleRefresh
+} from "@/components/runs/use-run-lifecycle-refresh";
+import {
   buildCandidateRecommendationGroups,
   type CandidateLeg,
   type CandidateResult,
@@ -347,8 +351,15 @@ export function LiveResultsBoard({
   const [_, startTransition] = useTransition();
   const lastFingerprintRef = useRef(fingerprintPayload(initialPayload));
   const inflightRef = useRef(false);
+  const runStatus = payload.progress?.run.status ?? payload.status;
+
+  useRunLifecycleRefresh(runStatus);
 
   useEffect(() => {
+    if (isTerminalRunStatus(runStatus)) {
+      return;
+    }
+
     const intervalId = window.setInterval(async () => {
       if (document.hidden || inflightRef.current) {
         return;
@@ -380,7 +391,7 @@ export function LiveResultsBoard({
     }, 3000);
 
     return () => window.clearInterval(intervalId);
-  }, [sessionId]);
+  }, [runStatus, sessionId]);
 
   const progress = payload.progress;
   const groupedCandidates = useMemo(() => {
@@ -405,7 +416,6 @@ export function LiveResultsBoard({
     [groupedCandidates]
   );
 
-  const runStatus = progress?.run.status ?? payload.status;
   const active = runStatus === "queued" || runStatus === "running";
   const roundTripHighlightedIds = new Set(
     roundTripGroups.slice(0, 3).map((group) => group.representative.id)
