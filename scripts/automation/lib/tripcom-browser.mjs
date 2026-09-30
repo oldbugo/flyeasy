@@ -58,6 +58,7 @@ export function buildSignals(url, title, bodyText, visibleActions) {
       currentUrl.includes("login"),
       currentUrl.includes("signin")
     ].filter(Boolean).length,
+    botProtectionBlock: /whaleguard/.test(combinedText),
     challengeIndicators: [
       /captcha/.test(combinedText),
       /verify it's you/.test(combinedText),
@@ -78,6 +79,13 @@ export function buildSignals(url, title, bodyText, visibleActions) {
 }
 
 export function classifyConnectionState(signals, url) {
+  if (signals.botProtectionBlock) {
+    return {
+      detail: "Trip.com's bot protection blocked the automated browser (\"whaleguard block\"). Open Trip.com in the automation browser to check access, then resume the run.",
+      state: "blocked"
+    };
+  }
+
   if (signals.challengeIndicators > 0) {
     return {
       detail: "Trip.com rendered a challenge or verification block.",

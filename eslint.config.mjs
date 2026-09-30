@@ -5,6 +5,8 @@ const config = [
   {
     ignores: [
       ".next/**",
+      ".desktop-runtime/**",
+      ".tmp/**",
       "node_modules/**",
       "release/**"
     ]

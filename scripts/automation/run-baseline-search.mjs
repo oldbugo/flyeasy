@@ -755,6 +755,21 @@ function enumerateDatePairs(runRow, limit) {
   };
 }
 
+function createBlockedError(detail) {
+  const error = new Error(detail);
+  error.tripcomBlocked = true;
+  return error;
+}
+
+// A block affects every remaining query, so stop the run for user recovery
+// instead of recording each query as an ordinary failure.
+function rethrowIfBlocked(db, queryExecutionId, error) {
+  if (error && typeof error === "object" && error.tripcomBlocked) {
+    failQueryExecution(db, queryExecutionId, error.message, "blocked");
+    throw error;
+  }
+}
+
 function isBlockedState(observation) {
   return (
     observation.classification.state === "blocked" ||
@@ -861,7 +876,7 @@ async function waitForTripcomResultStage(page, context, stageLabel, expectedUrlP
       lastObservationAt = Date.now();
 
       if (isBlockedState(observation)) {
-        throw new Error(observation.classification.detail);
+        throw createBlockedError(observation.classification.detail);
       }
 
       const noResults = detectNoResultsState({
@@ -878,9 +893,36 @@ async function waitForTripcomResultStage(page, context, stageLabel, expectedUrlP
     await page.waitForTimeout(1_000);
   }
 
+  const evidence = await captureResultTimeoutEvidence(page, context, stageLabel);
+
   throw new Error(
-    `Timed out waiting for ${stageLabel} Trip.com results. Last URL: ${lastUrl}`
+    `Timed out waiting for ${stageLabel} Trip.com results. Last URL: ${lastUrl}${evidence}`
   );
+}
+
+// Capture the page before its query closes it, so timeouts can be told apart
+// from blocked, empty, or changed result pages.
+async function captureResultTimeoutEvidence(page, context, stageLabel) {
+  try {
+    const observation = await collectConnectionObservation(page, context);
+    const cardCount = await page
+      .locator('[data-testid^="u-flight-card-"]')
+      .count()
+      .catch(() => 0);
+    const stageName = `timeout-${stageLabel.replace(/[^a-z0-9]+/gi, "-").toLowerCase()}-${Date.now()}`;
+
+    await appendStageArtifacts(
+      page,
+      runDir,
+      stageName,
+      `Timed out ${stageLabel} Trip.com results`,
+      artifactRecords
+    );
+
+    return ` Page title: "${observation.title}". Connection: ${observation.classification.state}. Flight cards on page: ${cardCount}. Evidence: ${stageName}.png`;
+  } catch {
+    return "";
+  }
 }
 
 async function openExploreTopListResult(page) {
@@ -1643,6 +1685,15 @@ function markRunBlocked(db, runRow, strategyId, message, resumeCheckpoint, artif
   ).run(runRow.monitoring_state === "enabled" ? 1 : 0, timestamp, runRow.session_id);
 
   refreshStrategyExperimentGroup(db, runRow.strategy_experiment_group_id);
+
+  writeWorkerState({
+    activeRunId: null,
+    lastError: message,
+    lastHeartbeatAt: timestamp,
+    pid: null,
+    startedAt: null,
+    status: "blocked"
+  });
 }
 
 function finalizeRunSuccess(db, runRow, resumed) {
@@ -3321,7 +3372,7 @@ async function openReturnOptionExpansionStage(page, context, targetCardTestId) {
       lastObservationAt = Date.now();
 
       if (isBlockedState(observation)) {
-        throw new Error(observation.classification.detail);
+        throw createBlockedError(observation.classification.detail);
       }
 
       const noResults = detectNoResultsState({
@@ -5127,19 +5178,32 @@ db.prepare(
 );
 
 const browserStateDir = path.join(paths.browserStateDir, "app");
-const context = await chromium.launchPersistentContext(browserStateDir, {
-  headless,
-  viewport: { width: 1440, height: 960 }
-});
-
-const page = context.pages()[0] ?? (await context.newPage());
-
 const artifactRecords = [];
 const EARLY_EXIT = { earlyExit: true };
 let activeStrategy = strategies[0];
 let shouldDispatchQueue = false;
+let context = null;
+let page = null;
 
 try {
+  // Launch inside the try so a missing or broken browser fails the run
+  // instead of leaving it marked as running.
+  try {
+    context = await chromium.launchPersistentContext(browserStateDir, {
+      headless,
+      viewport: { width: 1440, height: 960 }
+    });
+  } catch (launchError) {
+    const detail = launchError instanceof Error ? launchError.message.split("\n")[0] : String(launchError);
+    throw new Error(
+      /Executable doesn't exist/i.test(detail)
+        ? "Could not start the automation browser: Playwright Chromium is not installed. Run `npx playwright install chromium`, or restart the FlyEasy desktop app to reinstall it."
+        : `Could not start the automation browser: ${detail}`
+    );
+  }
+
+  page = context.pages()[0] ?? (await context.newPage());
+
   let baseCandidates = [];
   let latestAnalysisSnapshot = null;
   const baselineStrategy = strategies[0];
@@ -5349,6 +5413,7 @@ try {
           recordAdaptiveDirectSweepOutcome(adaptivePlanner, pair, queryResult);
         }
       } catch (queryError) {
+        rethrowIfBlocked(db, queryExecution.id, queryError);
         failQueryExecution(
           db,
           queryExecution.id,
@@ -5587,6 +5652,7 @@ try {
           expandedCandidates.push(...created.createdCandidates);
           baseCandidates.push(...created.createdCandidates);
         } catch (queryError) {
+          rethrowIfBlocked(db, queryExecution.id, queryError);
           const message =
             queryError instanceof Error
               ? queryError.message
@@ -5773,6 +5839,7 @@ try {
             baseCandidates.push(...queryResult.createdCandidates);
             existingDirectPairKeys.add(pairKey);
           } catch (queryError) {
+            rethrowIfBlocked(db, queryExecution.id, queryError);
             const message =
               queryError instanceof Error
                 ? queryError.message
@@ -6037,6 +6104,7 @@ try {
               seedContext
             });
           } catch (queryError) {
+            rethrowIfBlocked(db, queryExecution.id, queryError);
             const message =
               queryError instanceof Error ? queryError.message : "Stopover follow-up query failed.";
             failQueryExecution(db, queryExecution.id, message);
@@ -6279,6 +6347,7 @@ try {
                 }
               });
             } catch (queryError) {
+              rethrowIfBlocked(db, queryExecution.id, queryError);
               const message =
                 queryError instanceof Error ? queryError.message : "Anchored multi-city query failed.";
               failQueryExecution(db, queryExecution.id, message);
@@ -6574,6 +6643,7 @@ try {
           longStopCandidates.push(...created);
           baseCandidates.push(...created);
         } catch (queryError) {
+          rethrowIfBlocked(db, queryExecution.id, queryError);
           const message =
             queryError instanceof Error ? queryError.message : "Long-stop follow-up query failed.";
           failQueryExecution(db, queryExecution.id, message);
@@ -6716,6 +6786,7 @@ try {
             probeCandidates.push(...created.createdCandidates);
             baseCandidates.push(...created.createdCandidates);
           } catch (queryError) {
+            rethrowIfBlocked(db, queryExecution.id, queryError);
             const message =
               queryError instanceof Error ? queryError.message : "Alternate city comparison query failed.";
             failQueryExecution(db, queryExecution.id, message);
@@ -6946,6 +7017,7 @@ try {
                 stopoverDepartDate
               });
             } catch (queryError) {
+              rethrowIfBlocked(db, queryExecution.id, queryError);
               const message =
                 queryError instanceof Error ? queryError.message : "Recommendation date coverage query failed.";
               failQueryExecution(db, queryExecution.id, message);
@@ -7030,6 +7102,7 @@ try {
                 status: result.createdCandidates.length > 0 ? "completed" : "skipped"
               });
             } catch (queryError) {
+              rethrowIfBlocked(db, queryExecution.id, queryError);
               const message =
                 queryError instanceof Error ? queryError.message : "Recommendation date coverage query failed.";
               failQueryExecution(db, queryExecution.id, message);
@@ -7140,18 +7213,24 @@ try {
     // The run state has already been updated explicitly.
   } else {
     const timestamp = nowIso();
-    const currentUrl = page.url();
+    const currentUrl = page ? page.url() : "";
     const rawMessage = error instanceof Error ? error.message : "Trip.com baseline automation failed.";
     const message = `${rawMessage}${currentUrl ? ` Current URL: ${currentUrl}` : ""}`;
-    const blocked = /login|captcha|challenge|authentication/i.test(message);
+    const blocked =
+      Boolean(error && typeof error === "object" && error.tripcomBlocked) ||
+      /login|captcha|challenge|authentication/i.test(message);
 
-    await tryAppendStageArtifacts(
-      page,
-      runDir,
-      blocked ? "blocked-failure-state" : "failure-state",
-      blocked ? "Blocked Trip.com failure state" : "Trip.com failure state",
-      artifactRecords
-    );
+    console.error(`[${timestamp}] Run ${runId} ${blocked ? "blocked" : "failed"}: ${message}`);
+
+    if (page) {
+      await tryAppendStageArtifacts(
+        page,
+        runDir,
+        blocked ? "blocked-failure-state" : "failure-state",
+        blocked ? "Blocked Trip.com failure state" : "Trip.com failure state",
+        artifactRecords
+      );
+    }
 
     insertArtifacts(db, runId, strategyRow.id, timestamp, artifactRecords);
 
@@ -7233,7 +7312,7 @@ try {
   }
 } finally {
   db.close();
-  await context.close();
+  await context?.close();
 
   if (shouldDispatchQueue) {
     requestQueuedRunDispatch();

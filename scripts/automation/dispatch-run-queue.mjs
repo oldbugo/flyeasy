@@ -255,18 +255,29 @@ function claimRun(db, runId, resumeRequested) {
 
 function spawnWorker(runId, resumeRequested) {
   const preferences = readAutomationPreferences();
-  const child = spawn(process.execPath, [workerScriptPath, runId], {
-    cwd: resolveFlyEasyAppRoot(),
-    detached: true,
-    env: {
-      ...process.env,
-      FLYEASY_AUTOMATION_HEADFUL: preferences.showAutomationBrowser ? "1" : "0",
-      ...(resumeRequested ? { FLYEASY_RUN_RESUME: "1" } : {})
-    },
-    stdio: "ignore"
-  });
+  // Keep worker output so crashes outside the worker's own error handling can be diagnosed.
+  const logDir = path.join(runtimeDir, "worker-logs");
+  fs.mkdirSync(logDir, { recursive: true });
+  const logFd = fs.openSync(path.join(logDir, `${runId}.log`), "a");
 
-  child.unref();
+  try {
+    fs.writeSync(logFd, `\n[${nowIso()}] Starting worker${resumeRequested ? " (resume)" : ""}\n`);
+    const child = spawn(process.execPath, [workerScriptPath, runId], {
+      cwd: resolveFlyEasyAppRoot(),
+      detached: true,
+      env: {
+        ...process.env,
+        FLYEASY_AUTOMATION_HEADFUL: preferences.showAutomationBrowser ? "1" : "0",
+        ...(resumeRequested ? { FLYEASY_RUN_RESUME: "1" } : {})
+      },
+      stdio: ["ignore", logFd, logFd],
+      windowsHide: true
+    });
+
+    child.unref();
+  } finally {
+    fs.closeSync(logFd);
+  }
 }
 
 function main() {

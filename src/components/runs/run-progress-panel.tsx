@@ -104,7 +104,7 @@ function fingerprintRunProgress(payload: RunProgressPayload) {
     payload.run.totalCandidatesFound,
     payload.run.totalStrategiesExecuted,
     payload.events.length,
-    payload.queries.length,
+    payload.queries.map((query) => query.status.charAt(0)).join(""),
     payload.analysisSnapshots.length,
     payload.candidates.length
   ].join("|");

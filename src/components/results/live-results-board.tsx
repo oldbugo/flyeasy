@@ -23,7 +23,14 @@ type ResultsLivePayload = {
         isCurrentBest?: boolean;
       }
     >;
+    queries?: Array<{
+      failureReason: string | null;
+      id: string;
+      queryInputJson: string;
+      status: string;
+    }>;
     run: {
+      failureReason?: string | null;
       id: string;
       startedAt: string;
       status: string;
@@ -33,6 +40,57 @@ type ResultsLivePayload = {
   runId: string | null;
   status: string;
 };
+
+type QueryProgressSummary = {
+  completedCount: number;
+  currentDates: string | null;
+  failedCount: number;
+  latestFailure: string | null;
+  totalCount: number;
+};
+
+function formatQueryDate(value: unknown) {
+  if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}/.test(value)) {
+    return null;
+  }
+
+  return new Intl.DateTimeFormat("en-AU", { day: "numeric", month: "short" }).format(
+    new Date(`${value.slice(0, 10)}T00:00:00`)
+  );
+}
+
+function describeQueryDates(queryInputJson: string) {
+  try {
+    const input = JSON.parse(queryInputJson) as Record<string, unknown>;
+    const depart = formatQueryDate(input.departDate);
+    const back = formatQueryDate(input.returnDate);
+
+    if (depart && back) {
+      return `${depart} → ${back}`;
+    }
+
+    return depart;
+  } catch {
+    return null;
+  }
+}
+
+function summarizeQueryProgress(
+  queries: NonNullable<NonNullable<ResultsLivePayload["progress"]>["queries"]>
+): QueryProgressSummary {
+  const running = queries.filter((query) => query.status === "running");
+  const failed = queries.filter((query) => query.status === "failed");
+  const latestRunning = running[running.length - 1];
+
+  return {
+    completedCount: queries.filter((query) => query.status !== "running" && query.status !== "queued")
+      .length,
+    currentDates: latestRunning ? describeQueryDates(latestRunning.queryInputJson) : null,
+    failedCount: failed.length,
+    latestFailure: failed[failed.length - 1]?.failureReason ?? null,
+    totalCount: queries.length
+  };
+}
 
 type LiveResultsBoardProps = {
   initialPayload: ResultsLivePayload;
@@ -51,7 +109,11 @@ function fingerprintPayload(payload: ResultsLivePayload) {
     ? `${last.id}:${last.displayedDisplayAmount}:${last.isCurrentBest ? "1" : "0"}`
     : "none";
 
-  return `run:${payload.progress.run.id}:${payload.progress.run.status}:${candidates.length}:${lastKey}`;
+  const queryKey = (payload.progress.queries ?? [])
+    .map((query) => query.status.charAt(0))
+    .join("");
+
+  return `run:${payload.progress.run.id}:${payload.progress.run.status}:${candidates.length}:${lastKey}:${queryKey}`;
 }
 
 function formatMoney(currency: string, amount: number) {
@@ -417,6 +479,15 @@ export function LiveResultsBoard({
   );
 
   const active = runStatus === "queued" || runStatus === "running";
+  const queryProgress = progress?.queries ? summarizeQueryProgress(progress.queries) : null;
+  const runError =
+    runStatus === "failed" || runStatus === "blocked" ? progress?.run.failureReason ?? null : null;
+  const errorLines = [
+    runError ? { label: runStatus === "blocked" ? "Run blocked" : "Run failed", text: runError } : null,
+    queryProgress?.latestFailure && queryProgress.latestFailure !== runError
+      ? { label: "Latest search error", text: queryProgress.latestFailure }
+      : null
+  ].filter((line): line is { label: string; text: string } => line !== null);
   const roundTripHighlightedIds = new Set(
     roundTripGroups.slice(0, 3).map((group) => group.representative.id)
   );
@@ -619,8 +690,27 @@ export function LiveResultsBoard({
             {active ? "Live search timeline" : "Latest run timeline"}
           </p>
           <h2 className="mt-3 text-2xl font-semibold tracking-tight text-ink">
-            {progress?.run.summaryText ?? "Timeline view of recorded routes"}
+            {active && queryProgress?.currentDates
+              ? `Searching ${queryProgress.currentDates}`
+              : progress?.run.summaryText ?? "Timeline view of recorded routes"}
           </h2>
+          {queryProgress && queryProgress.totalCount > 0 ? (
+            <p className="mt-2 text-sm font-medium text-slate-700">
+              {queryProgress.completedCount} of {queryProgress.totalCount} searches finished
+              {queryProgress.failedCount > 0 ? (
+                <span className="text-rose-700"> · {queryProgress.failedCount} failed</span>
+              ) : null}
+            </p>
+          ) : null}
+          {errorLines.map((line) => (
+            <p
+              key={line.label}
+              className="mt-3 max-w-3xl break-words rounded-[14px] bg-rose-50 px-4 py-3 text-sm leading-6 text-rose-800"
+            >
+              <span className="font-semibold">{line.label}: </span>
+              {line.text}
+            </p>
+          ))}
           <p className="mt-2 text-sm leading-7 text-slate-600">
             The timeline is split between round-trip and multi-city itineraries. Each section
             keeps grouped rows aligned on its own shared date axis from the earliest departure to
