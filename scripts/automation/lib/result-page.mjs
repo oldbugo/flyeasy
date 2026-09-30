@@ -2,12 +2,12 @@
 
 const FLIGHT_CARD_SELECTOR = '[data-testid^="u-flight-card-"]';
 
+// Reads immediately rather than auto-waiting: locator.innerText() waits up to
+// 30s for a card to exist, which stalled every check on card-less pages.
 export async function readFirstCardSignature(page) {
   return page
     .locator(FLIGHT_CARD_SELECTOR)
-    .first()
-    .innerText()
-    .then((value) => value.replace(/\s+/g, " ").trim())
+    .evaluateAll((nodes) => nodes[0]?.innerText.replace(/\s+/g, " ").trim() || null)
     .catch(() => null);
 }
 
@@ -50,26 +50,20 @@ export async function waitForCardsToSettle(page, maxMs, stableMs = 750) {
 }
 
 // Going back from the return stage is cheaper than reloading the whole search
-// for each outbound branch. Returns false (caller reloads) if the outbound
-// list does not come back quickly.
+// for each outbound branch. Returns true once the page is back on the
+// outbound results address; the caller then waits for results as usual (which
+// handles loading, blocks and no-results). Returns false if it should reload.
 export async function returnToOutboundResults(page) {
-  const navigated = await page
-    .goBack({ timeout: 15_000, waitUntil: "domcontentloaded" })
-    .then(() => true)
-    .catch(() => false);
+  await page.goBack({ timeout: 15_000, waitUntil: "domcontentloaded" }).catch(() => null);
 
-  if (!navigated) {
-    return false;
-  }
-
-  const deadline = Date.now() + 15_000;
+  const deadline = Date.now() + 3_000;
 
   while (Date.now() < deadline) {
-    if (/showfarefirst/i.test(page.url()) && (await readFirstCardSignature(page))) {
+    if (/showfarefirst/i.test(page.url())) {
       return true;
     }
 
-    await page.waitForTimeout(250);
+    await page.waitForTimeout(100);
   }
 
   return false;

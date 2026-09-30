@@ -33,7 +33,8 @@ import {
   detectNoResultsState,
   inferStopCount,
   parseStopoverFilterOptions,
-  parseVisibleCards
+  parseVisibleCards,
+  TRIPCOM_ORIGIN
 } from "./lib/tripcom-browser.mjs";
 import { isChinaBasedAirline } from "./lib/china-based-airlines.mjs";
 import { createFlightDataRecorder } from "./lib/flight-data-capture.mjs";
@@ -193,7 +194,7 @@ function buildTripcomDirectResultsUrl({ originAirport, destinationCityCode, depa
     triptype: "rt"
   });
 
-  return `https://au.trip.com/flights/showfarefirst?${params.toString()}`;
+  return `${TRIPCOM_ORIGIN}/flights/showfarefirst?${params.toString()}`;
 }
 
 function buildTripcomAnchoredMultiCityResultsUrl({
@@ -225,7 +226,7 @@ function buildTripcomAnchoredMultiCityResultsUrl({
     triptype: "mt"
   });
 
-  return `https://au.trip.com/flights/showfarefirst?${params.toString()}`;
+  return `${TRIPCOM_ORIGIN}/flights/showfarefirst?${params.toString()}`;
 }
 
 function safeJsonParse(value, fallback) {
@@ -1437,7 +1438,7 @@ function insertCandidateRecord(db, currentRunId, strategyId, values) {
     values.totalTravelMinutes,
     values.stitchedRiskLevel ?? null,
     values.riskNotes,
-    values.tripcomResumeUrl ?? "https://au.trip.com/flights/",
+    values.tripcomResumeUrl ?? `${TRIPCOM_ORIGIN}/flights/`,
     createdAt,
     createdAt,
     createdAt,
@@ -1773,7 +1774,7 @@ function finalizeRunSuccess(db, runRow, resumed) {
       ? "Trip.com recovery succeeded and the blocked run resumed successfully."
       : "Trip.com public packaged search succeeded in the current browser context.",
     lastCheckedAt: timestamp,
-    lastUrl: "https://au.trip.com/flights/",
+    lastUrl: `${TRIPCOM_ORIGIN}/flights/`,
     state: "ready_public",
     updatedBy: resumed ? "manual_recovery" : "automation"
   });
@@ -3518,7 +3519,7 @@ async function loadSortedOutboundCardsForQuery(
         `Trip.com outbound empty-state before retry ${attempt}`,
         artifactRecords
       );
-      await queryPage.goto("https://au.trip.com/flights/", {
+      await queryPage.goto(`${TRIPCOM_ORIGIN}/flights/`, {
         timeout: timeoutMs,
         waitUntil: "domcontentloaded"
       });
@@ -3627,14 +3628,13 @@ async function selectOutboundBranchAndParseReturns({
   runDir,
   artifactRecords
 }) {
-  if (outboundRank > 0 && (await returnToOutboundResults(queryPage))) {
-    await waitForCardsToSettle(queryPage, 2_000);
-    await sortResultStageByCheapest(queryPage);
-  } else if (outboundRank > 0) {
-    await queryPage.goto(resultUrl, {
-      timeout: timeoutMs,
-      waitUntil: "domcontentloaded"
-    });
+  if (outboundRank > 0) {
+    if (!(await returnToOutboundResults(queryPage))) {
+      await queryPage.goto(resultUrl, {
+        timeout: timeoutMs,
+        waitUntil: "domcontentloaded"
+      });
+    }
     let outboundStage = await waitForTripcomResultStage(queryPage, context, "outbound", /showfarefirst/i, null);
 
     if (outboundStage.kind === "explore_top_list") {
@@ -5214,7 +5214,7 @@ try {
   if (baselineStrategy.status === "completed" && baselineExisting.length > 0) {
     baseCandidates = baselineExisting;
   } else {
-    await page.goto("https://au.trip.com/flights/", {
+    await page.goto(`${TRIPCOM_ORIGIN}/flights/`, {
       timeout: timeoutMs,
       waitUntil: "domcontentloaded"
     });
@@ -7298,7 +7298,7 @@ try {
     writeConnectionState({
       detail: message,
       lastCheckedAt: timestamp,
-      lastUrl: currentUrl || "https://au.trip.com/flights/",
+      lastUrl: currentUrl || `${TRIPCOM_ORIGIN}/flights/`,
       state: blocked ? "blocked" : "unknown",
       updatedBy: "automation"
     });

@@ -1,5 +1,8 @@
 import path from "node:path";
 
+// Automated tests point this at a local fake Trip.com; it is never set in normal use.
+export const TRIPCOM_ORIGIN = (process.env.FLYEASY_TRIPCOM_ORIGIN ?? "https://au.trip.com").replace(/\/$/, "");
+
 export function normalizeText(value) {
   return value.replace(/\s+/g, " ").trim();
 }

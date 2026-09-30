@@ -1,0 +1,53 @@
+name: Tests
+
+on:
+  push:
+    branches:
+      - "**"
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: windows-latest
+    timeout-minutes: 30
+
+    env:
+      # The tests run the Node automation worker, not the Electron shell.
+      ELECTRON_SKIP_BINARY_DOWNLOAD: "1"
+      # Keep each test's data folder (database, screenshots, logs) for upload.
+      FLYEASY_KEEP_TEST_DATA: "1"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          # Node 24 loads the TypeScript module used by the unit tests directly.
+          node-version: 24
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Playwright Chromium
+        run: npx playwright install chromium
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Test
+        run: npm test
+
+      - name: Upload test data on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-data
+          path: .tmp/tests/
+          if-no-files-found: ignore

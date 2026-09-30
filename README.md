@@ -39,6 +39,23 @@ npm run dev:desktop
 
 That starts the Next.js UI and opens the Electron shell pointed at the local app runtime.
 
+## Testing
+
+```bash
+npx playwright install chromium
+npm test
+```
+
+`npm test` runs everything (about 2 minutes). Parts can be run on their own:
+
+- `npm run test:unit`: fast checks for block detection, flight-data decoding and progress summaries
+- `npm run test:browser`: result-page helpers and the card parser against saved Trip.com pages
+- `npm run test:worker`: the real search worker and queue dispatcher, end to end
+
+The browser and worker tests never contact Trip.com. They use a local fake site (`tests/support/fake-tripcom.mjs`) that serves saved result pages from `tests/fixtures/tripcom/`, and each test gets its own data folder under `.tmp/tests/` with a fresh database. Set `FLYEASY_KEEP_TEST_DATA=1` to keep those folders for inspection.
+
+GitHub Actions runs lint, typecheck and the full test suite on every push and pull request ([.github/workflows/tests.yml](.github/workflows/tests.yml)).
+
 ## Windows Packaging
 
 FlyEasy can now be packaged as a Windows installer:

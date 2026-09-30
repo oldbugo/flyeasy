@@ -1,7 +1,7 @@
 import { chromium } from "playwright";
 
 import { ensureFlyEasyPaths } from "../lib/flyeasy-paths.mjs";
-import { collectConnectionObservation } from "./lib/tripcom-browser.mjs";
+import { collectConnectionObservation, TRIPCOM_ORIGIN } from "./lib/tripcom-browser.mjs";
 import { writeConnectionState } from "./lib/runtime-state.mjs";
 
 const headless = process.env.FLYEASY_CONNECTION_HEADFUL === "1" ? false : true;
@@ -27,7 +27,7 @@ const context = await chromium.launchPersistentContext(browserStateDir, {
 const page = context.pages()[0] ?? (await context.newPage());
 
 try {
-  await page.goto("https://au.trip.com/flights/", {
+  await page.goto(`${TRIPCOM_ORIGIN}/flights/`, {
     timeout: timeoutMs,
     waitUntil: "domcontentloaded"
   });
@@ -50,7 +50,7 @@ try {
   writeConnectionState({
     detail: error instanceof Error ? error.message : "Trip.com connection check failed.",
     lastCheckedAt: new Date().toISOString(),
-    lastUrl: "https://au.trip.com/flights/",
+    lastUrl: `${TRIPCOM_ORIGIN}/flights/`,
     state: "blocked",
     updatedBy: "probe"
   });
