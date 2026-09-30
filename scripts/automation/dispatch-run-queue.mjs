@@ -268,6 +268,7 @@ function spawnWorker(runId, resumeRequested) {
       env: {
         ...process.env,
         FLYEASY_AUTOMATION_HEADFUL: preferences.showAutomationBrowser ? "1" : "0",
+        FLYEASY_CAPTURE_SUCCESS_SCREENSHOTS: preferences.captureSuccessScreenshots ? "1" : "0",
         ...(resumeRequested ? { FLYEASY_RUN_RESUME: "1" } : {})
       },
       stdio: ["ignore", logFd, logFd],

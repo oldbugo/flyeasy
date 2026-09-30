@@ -134,8 +134,12 @@ export function detectNoResultsState({ bodyText = "", title = "", url = "" } = {
   return null;
 }
 
-export async function collectConnectionObservation(page, context) {
-  await page.waitForTimeout(3_000);
+// settleMs lets a one-off check wait for the page to finish loading; polling
+// loops already wait between checks and pass 0.
+export async function collectConnectionObservation(page, context, { settleMs = 3_000 } = {}) {
+  if (settleMs > 0) {
+    await page.waitForTimeout(settleMs);
+  }
 
   const [title, tripcomUrl, bodyText, visibleActions] = await Promise.all([
     page.title(),

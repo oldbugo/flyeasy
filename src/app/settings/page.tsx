@@ -2,7 +2,8 @@ import { resumeBlockedRunAction } from "@/app/sessions/actions";
 import {
   runTripcomConnectionCheckAction,
   startTripcomRecoveryAction,
-  updateAutomationBrowserPreferenceAction
+  updateAutomationBrowserPreferenceAction,
+  updateSuccessScreenshotPreferenceAction
 } from "@/app/settings/actions";
 import { listBlockedRuns } from "@/lib/db/queries/runs";
 import { formatIsoDateTime } from "@/lib/formatting";
@@ -88,9 +89,34 @@ export default async function SettingsPage() {
                   ? "Visible while runs execute"
                   : "Hidden (headless)"}
               </p>
+              <p>
+                Screenshots of successful searches:{" "}
+                {automationPreferences.captureSuccessScreenshots
+                  ? "Saved for every search step (slower)"
+                  : "Off (failures are always captured)"}
+              </p>
             </div>
 
-            <form action={updateAutomationBrowserPreferenceAction} className="mt-6">
+            <form
+              action={updateSuccessScreenshotPreferenceAction}
+              className="mt-6 inline-block pr-3"
+            >
+              <input
+                type="hidden"
+                name="captureSuccessScreenshots"
+                value={automationPreferences.captureSuccessScreenshots ? "0" : "1"}
+              />
+              <button
+                type="submit"
+                className="rounded-full border border-line px-4 py-2 text-sm font-semibold text-slate-700 transition hover:border-sea hover:text-sea"
+              >
+                {automationPreferences.captureSuccessScreenshots
+                  ? "Stop saving success screenshots"
+                  : "Save success screenshots"}
+              </button>
+            </form>
+
+            <form action={updateAutomationBrowserPreferenceAction} className="mt-6 inline-block">
               <input
                 type="hidden"
                 name="showAutomationBrowser"

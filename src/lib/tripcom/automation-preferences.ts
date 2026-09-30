@@ -4,10 +4,12 @@ import path from "node:path";
 import { ensureFlyEasyPaths, resolveFlyEasyPaths } from "@/lib/runtime/app-paths";
 
 export type AutomationPreferences = {
+  captureSuccessScreenshots: boolean;
   showAutomationBrowser: boolean;
 };
 
 const DEFAULT_AUTOMATION_PREFERENCES: AutomationPreferences = {
+  captureSuccessScreenshots: false,
   showAutomationBrowser: true
 };
 
@@ -30,6 +32,10 @@ export function readAutomationPreferences(): AutomationPreferences {
     const parsed = JSON.parse(fs.readFileSync(filePath, "utf8")) as Partial<AutomationPreferences>;
 
     return {
+      captureSuccessScreenshots:
+        typeof parsed.captureSuccessScreenshots === "boolean"
+          ? parsed.captureSuccessScreenshots
+          : DEFAULT_AUTOMATION_PREFERENCES.captureSuccessScreenshots,
       showAutomationBrowser:
         typeof parsed.showAutomationBrowser === "boolean"
           ? parsed.showAutomationBrowser

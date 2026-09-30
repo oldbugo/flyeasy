@@ -36,12 +36,20 @@ import {
   parseVisibleCards
 } from "./lib/tripcom-browser.mjs";
 import { isChinaBasedAirline } from "./lib/china-based-airlines.mjs";
+import { createFlightDataRecorder } from "./lib/flight-data-capture.mjs";
+import {
+  readFirstCardSignature,
+  readVisibleCardSignatureList,
+  returnToOutboundResults,
+  waitForCardsToSettle
+} from "./lib/result-page.mjs";
 
 const runId = process.argv[2];
 const isResume = process.env.FLYEASY_RUN_RESUME === "1";
 const forceBlocked = process.env.FLYEASY_FORCE_BLOCKED === "1";
 const timeoutMs = Number(process.env.FLYEASY_AUTOMATION_TIMEOUT_MS ?? 180_000);
 const headless = process.env.FLYEASY_AUTOMATION_HEADFUL === "1" ? false : true;
+const captureSuccessScreenshots = process.env.FLYEASY_CAPTURE_SUCCESS_SCREENSHOTS === "1";
 const directCardScanLimit = Math.max(24, Number(process.env.FLYEASY_DIRECT_CARD_SCAN_LIMIT ?? 80));
 const returnCardScanLimit = Math.max(18, Number(process.env.FLYEASY_RETURN_CARD_SCAN_LIMIT ?? 60));
 const expandedReturnCardScanLimit = Math.max(
@@ -826,13 +834,14 @@ async function tryAppendStageArtifacts(page, runDir, stageName, notesPrefix, art
   }
 }
 
-async function readFirstCardSignature(page) {
-  return page
-    .locator('[data-testid^="u-flight-card-"]')
-    .first()
-    .innerText()
-    .then((value) => value.replace(/\s+/g, " ").trim())
-    .catch(() => null);
+// Full-page screenshots of healthy stages are slow and only useful for
+// debugging, so they are opt-in. Failure evidence is always captured.
+async function appendSuccessStageArtifacts(page, runDir, stageName, notesPrefix, artifactRecords) {
+  if (!captureSuccessScreenshots) {
+    return null;
+  }
+
+  return appendStageArtifacts(page, runDir, stageName, notesPrefix, artifactRecords);
 }
 
 async function waitForTripcomResultStage(page, context, stageLabel, expectedUrlPattern, previousCardSignature) {
@@ -872,7 +881,7 @@ async function waitForTripcomResultStage(page, context, stageLabel, expectedUrlP
     }
 
     if (Date.now() - lastObservationAt >= 4_000) {
-      const observation = await collectConnectionObservation(page, context);
+      const observation = await collectConnectionObservation(page, context, { settleMs: 0 });
       lastObservationAt = Date.now();
 
       if (isBlockedState(observation)) {
@@ -904,7 +913,7 @@ async function waitForTripcomResultStage(page, context, stageLabel, expectedUrlP
 // from blocked, empty, or changed result pages.
 async function captureResultTimeoutEvidence(page, context, stageLabel) {
   try {
-    const observation = await collectConnectionObservation(page, context);
+    const observation = await collectConnectionObservation(page, context, { settleMs: 0 });
     const cardCount = await page
       .locator('[data-testid^="u-flight-card-"]')
       .count()
@@ -1023,7 +1032,7 @@ async function applyStopoverFilter(page, cityCode) {
   };
 
   if ((await option.getAttribute("aria-checked").catch(() => null)) === "true") {
-    await page.waitForTimeout(2_000);
+    await waitForCardsToSettle(page, 2_000);
     return;
   }
 
@@ -1034,7 +1043,7 @@ async function applyStopoverFilter(page, cityCode) {
   await clickCheckbox();
 
   if (await waitForCheckedState()) {
-    await page.waitForTimeout(2_000);
+    await waitForCardsToSettle(page, 2_000);
     return;
   }
 
@@ -3320,19 +3329,6 @@ function buildAnchoredMultiCityObservedStopovers({
   return finalizeObservedStopoverEvidence(evidenceMap);
 }
 
-async function readVisibleCardSignatureList(page, limit = 3) {
-  return page
-    .locator('[data-testid^="u-flight-card-"]')
-    .evaluateAll((nodes, maxCards) =>
-      nodes
-        .slice(0, maxCards)
-        .map((node) => node.textContent?.replace(/\s+/g, " ").trim())
-        .filter(Boolean),
-      limit
-    )
-    .catch(() => []);
-}
-
 async function openReturnOptionExpansionStage(page, context, targetCardTestId) {
   const previousUrl = page.url();
   const previousSignatures = await readVisibleCardSignatureList(page, 4);
@@ -3359,7 +3355,7 @@ async function openReturnOptionExpansionStage(page, context, targetCardTestId) {
     const urlChanged = currentUrl !== previousUrl || Boolean(popupPage);
 
     if (currentSignatures.length > 0 && (signaturesChanged || urlChanged)) {
-      await activePage.waitForTimeout(2_000);
+      await waitForCardsToSettle(activePage, 2_000);
       return {
         activePage,
         currentUrl,
@@ -3368,7 +3364,7 @@ async function openReturnOptionExpansionStage(page, context, targetCardTestId) {
     }
 
     if (Date.now() - lastObservationAt >= 4_000) {
-      const observation = await collectConnectionObservation(activePage, context);
+      const observation = await collectConnectionObservation(activePage, context, { settleMs: 0 });
       lastObservationAt = Date.now();
 
       if (isBlockedState(observation)) {
@@ -3543,7 +3539,7 @@ async function loadSortedOutboundCardsForQuery(
     );
 
     if (outboundStage.kind === "explore_top_list") {
-      await appendStageArtifacts(
+      await appendSuccessStageArtifacts(
         queryPage,
         runDir,
         `${queryDirPrefix}-explore-top-list`,
@@ -3580,8 +3576,8 @@ async function loadSortedOutboundCardsForQuery(
     };
   }
 
-  await queryPage.waitForTimeout(3_000);
-  await appendStageArtifacts(
+  await waitForCardsToSettle(queryPage, 3_000);
+  await appendSuccessStageArtifacts(
     queryPage,
     runDir,
     `${queryDirPrefix}-outbound-results`,
@@ -3631,7 +3627,10 @@ async function selectOutboundBranchAndParseReturns({
   runDir,
   artifactRecords
 }) {
-  if (outboundRank > 0) {
+  if (outboundRank > 0 && (await returnToOutboundResults(queryPage))) {
+    await waitForCardsToSettle(queryPage, 2_000);
+    await sortResultStageByCheapest(queryPage);
+  } else if (outboundRank > 0) {
     await queryPage.goto(resultUrl, {
       timeout: timeoutMs,
       waitUntil: "domcontentloaded"
@@ -3639,7 +3638,7 @@ async function selectOutboundBranchAndParseReturns({
     let outboundStage = await waitForTripcomResultStage(queryPage, context, "outbound", /showfarefirst/i, null);
 
     if (outboundStage.kind === "explore_top_list") {
-      await appendStageArtifacts(
+      await appendSuccessStageArtifacts(
         queryPage,
         runDir,
         `${queryDirPrefix}-explore-top-list-branch-${String(outboundRank + 1).padStart(2, "0")}`,
@@ -3650,7 +3649,7 @@ async function selectOutboundBranchAndParseReturns({
       outboundStage = await waitForTripcomResultStage(queryPage, context, "outbound", /showfarefirst/i, null);
     }
 
-    await queryPage.waitForTimeout(2_000);
+    await waitForCardsToSettle(queryPage, 2_000);
     await sortResultStageByCheapest(queryPage);
   }
 
@@ -3677,7 +3676,7 @@ async function selectOutboundBranchAndParseReturns({
     .first()
     .click();
   await waitForTripcomResultStage(queryPage, context, "return", /showfarenext/i, outboundCardSignature);
-  await queryPage.waitForTimeout(2_000);
+  await waitForCardsToSettle(queryPage, 2_000);
   await sortResultStageByCheapest(queryPage);
 
   return {
@@ -3715,12 +3714,12 @@ async function sortResultStageByCheapest(page) {
     const currentSignature = await readFirstCardSignature(page);
 
     if (selected === "true" && currentSignature && currentSignature !== previousSignature) {
-      await page.waitForTimeout(2_000);
+      await waitForCardsToSettle(page, 2_000);
       return true;
     }
 
     if (selected === "true" && currentSignature) {
-      await page.waitForTimeout(2_000);
+      await waitForCardsToSettle(page, 2_000);
       return true;
     }
 
@@ -4117,9 +4116,9 @@ async function executeAnchoredMultiCityQuery({
     });
     latestUrl = rootPage.url();
     await waitForTripcomResultStage(rootPage, context, "anchored multi-city stage one", /showfare/i, null);
-    await rootPage.waitForTimeout(2_000);
+    await waitForCardsToSettle(rootPage, 2_000);
     await sortResultStageByCheapest(rootPage);
-    await appendStageArtifacts(
+    await appendSuccessStageArtifacts(
       rootPage,
       runDir,
       `${queryDirPrefix}-anchored-stage-1`,
@@ -4190,7 +4189,7 @@ async function executeAnchoredMultiCityQuery({
           /showfare/i,
           null
         );
-        await stageTwoRootPage.waitForTimeout(2_000);
+        await waitForCardsToSettle(stageTwoRootPage, 2_000);
         await sortResultStageByCheapest(stageTwoRootPage);
         const { cards: replayStageOneCards } = await parseEligibleVisibleCards(
           stageTwoRootPage,
@@ -4215,7 +4214,7 @@ async function executeAnchoredMultiCityQuery({
         stageTwoPage = stageTwoTransition.activePage;
         latestUrl = stageTwoPage.url();
         await sortResultStageByCheapest(stageTwoPage);
-        await appendStageArtifacts(
+        await appendSuccessStageArtifacts(
           stageTwoPage,
           runDir,
           `${queryDirPrefix}-anchored-stage-2-${String(exploredStageTwoBranchCount + 1).padStart(2, "0")}`,
@@ -4260,7 +4259,7 @@ async function executeAnchoredMultiCityQuery({
               /showfare/i,
               null
             );
-            await finalRootPage.waitForTimeout(2_000);
+            await waitForCardsToSettle(finalRootPage, 2_000);
             await sortResultStageByCheapest(finalRootPage);
             const { cards: finalReplayStageOneCards } = await parseEligibleVisibleCards(
               finalRootPage,
@@ -4307,7 +4306,7 @@ async function executeAnchoredMultiCityQuery({
             finalPage = stageThreeTransition.activePage;
             latestUrl = finalPage.url();
             await sortResultStageByCheapest(finalPage);
-            await appendStageArtifacts(
+            await appendSuccessStageArtifacts(
               finalPage,
               runDir,
               `${queryDirPrefix}-anchored-stage-3-${String(exploredFinalBranchCount + 1).padStart(2, "0")}`,
@@ -4441,6 +4440,7 @@ async function executeDirectQuery({
     returnDate: queryInput.returnDate
   });
   const queryPage = await context.newPage();
+  flightDataRecorder.attach(queryPage, queryDirPrefix);
 
   try {
     const directPayload = parseStrategyPayload(strategy.strategy_payload_json ?? strategy.strategyPayloadJson ?? "{}");
@@ -4532,7 +4532,7 @@ async function executeDirectQuery({
         runRow,
         runDir
       });
-      await appendStageArtifacts(
+      await appendSuccessStageArtifacts(
         queryPage,
         runDir,
         `${queryDirPrefix}-return-results-branch-${String(outboundRank + 1).padStart(2, "0")}`,
@@ -4697,9 +4697,9 @@ async function executeReturnOptionExpansionQuery({
       waitUntil: "domcontentloaded"
     });
     const sourceStage = await waitForTripcomResultStage(queryPage, context, "return", /showfarenext/i, null);
-    await queryPage.waitForTimeout(2_000);
+    await waitForCardsToSettle(queryPage, 2_000);
     await sortResultStageByCheapest(queryPage);
-    await appendStageArtifacts(
+    await appendSuccessStageArtifacts(
       queryPage,
       runDir,
       `query-${String(queryPriority + 1).padStart(2, "0")}-${queryExecutionId}-return-expansion-source`,
@@ -4768,7 +4768,7 @@ async function executeReturnOptionExpansionQuery({
     const expansionStage = await openReturnOptionExpansionStage(queryPage, context, targetReturnCard.testId);
     activePage = expansionStage.activePage;
     await sortResultStageByCheapest(activePage);
-    await appendStageArtifacts(
+    await appendSuccessStageArtifacts(
       activePage,
       runDir,
       `query-${String(queryPriority + 1).padStart(2, "0")}-${queryExecutionId}-return-expansion`,
@@ -4891,8 +4891,8 @@ async function executeStopoverFollowupQuery({
       /showfarefirst/i,
       null
     );
-    await queryPage.waitForTimeout(2_000);
-    await appendStageArtifacts(
+    await waitForCardsToSettle(queryPage, 2_000);
+    await appendSuccessStageArtifacts(
       queryPage,
       runDir,
       `query-${String(queryPriority + 1).padStart(2, "0")}-${queryExecutionId}-stopover-outbound`,
@@ -4954,7 +4954,7 @@ async function executeStopoverFollowupQuery({
           waitUntil: "domcontentloaded"
         });
         await waitForTripcomResultStage(queryPage, context, "outbound", /showfarefirst/i, null);
-        await queryPage.waitForTimeout(2_000);
+        await waitForCardsToSettle(queryPage, 2_000);
         await sortResultStageByCheapest(queryPage);
       }
 
@@ -4983,8 +4983,8 @@ async function executeStopoverFollowupQuery({
         .first()
         .click();
       await waitForTripcomResultStage(queryPage, context, "return", /showfarenext/i, outboundCardSignature);
-      await queryPage.waitForTimeout(2_000);
-      await appendStageArtifacts(
+      await waitForCardsToSettle(queryPage, 2_000);
+      await appendSuccessStageArtifacts(
         queryPage,
         runDir,
         `query-${String(queryPriority + 1).padStart(2, "0")}-${queryExecutionId}-stopover-return-branch-${String(outboundRank + 1).padStart(2, "0")}`,
@@ -5179,6 +5179,7 @@ db.prepare(
 
 const browserStateDir = path.join(paths.browserStateDir, "app");
 const artifactRecords = [];
+const flightDataRecorder = createFlightDataRecorder({ artifactRecords, runDir });
 const EARLY_EXIT = { earlyExit: true };
 let activeStrategy = strategies[0];
 let shouldDispatchQueue = false;
@@ -7205,6 +7206,7 @@ try {
     summary: buildStrategyOutcomeTelemetry(db, runRow.id)
   });
 
+  await flightDataRecorder.flush();
   insertArtifacts(db, runId, baselineStrategy.id, nowIso(), artifactRecords);
   finalizeRunSuccess(db, runRow, isResume);
   shouldDispatchQueue = true;
@@ -7232,6 +7234,7 @@ try {
       );
     }
 
+    await flightDataRecorder.flush();
     insertArtifacts(db, runId, strategyRow.id, timestamp, artifactRecords);
 
     db.prepare(

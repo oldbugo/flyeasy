@@ -31,3 +31,12 @@ export async function updateAutomationBrowserPreferenceAction(formData: FormData
   revalidatePath("/settings");
   redirect("/settings");
 }
+
+export async function updateSuccessScreenshotPreferenceAction(formData: FormData) {
+  const captureSuccessScreenshots =
+    String(formData.get("captureSuccessScreenshots") ?? "") === "1";
+
+  writeAutomationPreferences({ captureSuccessScreenshots });
+  revalidatePath("/settings");
+  redirect("/settings");
+}
