@@ -20,6 +20,8 @@ artifacts/
 playwright-state/
 *.png
 *.html
+# Saved Trip.com pages the automated tests run against.
+!tests/fixtures/**/*.html
 
 # Environment files
 .env
