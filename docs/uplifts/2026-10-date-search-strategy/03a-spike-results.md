@@ -87,3 +87,40 @@ real prices. They will be replaced by replay on the collected grids.
 
 How to collect the ground-truth grids, given the block. See the dashboard's
 "Next steps" and the session summary.
+
+## Decision (2026-10-01): collect through the app worker, cross-check with monitoring runs
+
+The owner chose to run the grids through the app's normal worker and to
+cross-check them against monitoring runs.
+
+- `collect-fare-grid.mjs --profile app` uses the app worker's browser profile
+  and its "show automation browser" setting, and opens the Trip.com flights
+  page first, as the worker does. It claims the app's worker slot
+  (`runtime/automation-worker.json`), so the dispatcher holds app runs until a
+  batch finishes. It then hands the slot back and starts the dispatcher for any
+  runs that queued meanwhile. A block stops it immediately, sets the app's
+  connection state to `blocked`, and leaves the app's queue alone.
+- `run-collection.mjs --period A|B` runs one collection day: sentinels, the
+  20-pair click-through verification spike (once per period), up to 6 batches
+  of 40 loads with 15-minute pauses for app runs, then sentinels again.
+- `create-monitoring-sessions.mjs` copies the existing session for each
+  period, using the app's own Duplicate logic, and enables 12-hourly
+  monitoring. Monitoring only runs while the desktop app is open.
+- `lib/cross-check.mjs` matches every app query (monitoring and manual) to
+  the nearest research observation of the same pair within 24 hours, under
+  the session's airline filter. `build-report.mjs` reports the results by run
+  type, along with the click-through spike results.
+
+The owner runs the collection and session-creation commands from their own
+terminal. Claude's sandbox cannot open the visible browser window, and
+creating scheduled monitoring sessions needs the owner's approval.
+
+### Side finding: the app ignores `departure_end_date` when enumerating pairs
+
+`enumerateDatePairs` in `run-baseline-search.mjs` loops departures from
+`departure_start_date` up to `return_end_date − duration_min_days`. It never
+reads `departure_end_date`. For the research sessions, this means monitoring
+runs may sample departures after the period ends (e.g. up to 7 Jan 2027 for
+the December session). The cross-check skips pairs that are outside the grid.
+Whether this is intended (see `docs/uplifts/2026-03-session-date-simplification`)
+should be confirmed before the new baseline strategy is built.

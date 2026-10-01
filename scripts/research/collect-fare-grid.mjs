@@ -9,6 +9,8 @@
 //   node scripts/research/collect-fare-grid.mjs --period A --dataset rt_grid --limit 40
 //   datasets: rt_grid | ow_out | ow_ret | sentinel | verify
 //   options:  --limit N  --gap-min S  --gap-max S  --headful  --pairs 2026-12-10:2026-12-24,...
+//             --profile app   use the app worker's browser profile and visibility
+//                             setting; app runs wait until the batch finishes
 
 import fs from "node:fs";
 import path from "node:path";
@@ -17,7 +19,14 @@ import zlib from "node:zlib";
 import { chromium } from "playwright";
 
 import { resolveFlyEasyPaths } from "../lib/flyeasy-paths.mjs";
-import { TRIPCOM_ORIGIN } from "../automation/lib/tripcom-browser.mjs";
+import { writeConnectionState } from "../automation/lib/runtime-state.mjs";
+import { TRIPCOM_ORIGIN, collectConnectionObservation } from "../automation/lib/tripcom-browser.mjs";
+import {
+  claimAppWorkerSlot,
+  heartbeatAppWorkerSlot,
+  readShowAutomationBrowser,
+  releaseAppWorkerSlot
+} from "./lib/app-worker-slot.mjs";
 import { mergeFlightLists, summarizeFlightList } from "./lib/parse-flight-list.mjs";
 import { attachTripcomCapture } from "./lib/tripcom-capture.mjs";
 import {
@@ -35,7 +44,7 @@ const DATASETS = new Set(["rt_grid", "ow_out", "ow_ret", "sentinel", "verify"]);
 const BLOCK_PATTERN = /whaleguard|captcha|verify you are|slide to|unusual traffic|access denied|robot/i;
 
 function readArgs(argv) {
-  const args = { gapMax: 15, gapMin: 5, headful: false, limit: 40 };
+  const args = { gapMax: 15, gapMin: 5, headful: false, limit: 40, profile: "research" };
   for (let index = 0; index < argv.length; index += 1) {
     const flag = argv[index];
     const value = argv[index + 1];
@@ -46,6 +55,7 @@ function readArgs(argv) {
     if (flag === "--gap-max") args.gapMax = Number(value);
     if (flag === "--pairs") args.pairs = value;
     if (flag === "--headful") args.headful = true;
+    if (flag === "--profile") args.profile = value;
   }
   return args;
 }
@@ -138,10 +148,16 @@ function buildTargets() {
       to: ROUTE.originAirport
     }));
   }
-  const pairs = args.pairs
-    ? parsePairs(args.pairs)
-    : period.sentinels.map(([departDate, returnDate]) => ({ departDate, returnDate }));
-  return pairs.map(roundTrip);
+  const sentinels = period.sentinels.map(([departDate, returnDate]) => ({ departDate, returnDate }));
+  if (args.pairs) return parsePairs(args.pairs).map(roundTrip);
+  if (args.dataset === "sentinel") return sentinels.map(roundTrip);
+
+  // Verification spike (P0.2): the sentinels plus 14 random pairs.
+  const sentinelKeys = new Set(sentinels.map((pair) => `${pair.departDate}_${pair.returnDate}`));
+  const randomPairs = seededShuffle(datePairs(period), `verify:${args.period}`)
+    .filter((pair) => !sentinelKeys.has(`${pair.departDate}_${pair.returnDate}`))
+    .slice(0, 14);
+  return [...sentinels, ...randomPairs].map(roundTrip);
 }
 
 function pendingTargets(targets) {
@@ -281,30 +297,78 @@ if (!process.env.PLAYWRIGHT_BROWSERS_PATH && fs.existsSync(paths.playwrightBrows
 }
 
 const targets = pendingTargets(buildTargets()).slice(0, Math.max(1, args.limit));
-console.log(`[collect] period ${args.period} dataset ${args.dataset}: ${targets.length} load(s) this batch`);
+const slotLabel = `${args.period}:${args.dataset}`;
+const useAppProfile = args.profile === "app";
+console.log(
+  `[collect] period ${args.period} dataset ${args.dataset}: ${targets.length} load(s) this batch, ${useAppProfile ? "app worker profile" : "research profile"}`
+);
 
-// A separate browser profile so research never touches the app's session.
-const context = await chromium.launchPersistentContext(path.join(researchRoot, "browser-profile"), {
-  headless: !args.headful,
-  viewport: { width: 1440, height: 960 }
-});
+if (targets.length === 0) {
+  process.exit(0);
+}
+
+// With --profile app the collector uses the app worker's browser profile and
+// visibility setting, and claims the worker slot so app runs wait for it.
+if (useAppProfile && !claimAppWorkerSlot(slotLabel)) {
+  console.error("[collect] The app's Trip.com worker is busy (running or blocked). Try again later.");
+  process.exit(4);
+}
 
 let exitCode = 0;
+let blockedDetail = null;
+let context = null;
+
+function recordBlock(detail, url) {
+  blockedDetail = detail;
+  exitCode = 3;
+  if (useAppProfile) {
+    writeConnectionState({ detail, lastCheckedAt: new Date().toISOString(), lastUrl: url, state: "blocked", updatedBy: "research" });
+  }
+}
+
 try {
-  for (const [index, target] of targets.entries()) {
+  context = await chromium.launchPersistentContext(
+    useAppProfile ? paths.browserStateDir : path.join(researchRoot, "browser-profile"),
+    {
+      headless: useAppProfile ? !readShowAutomationBrowser() : !args.headful,
+      viewport: { width: 1440, height: 960 }
+    }
+  );
+
+  // Same entry the app worker uses before its first search.
+  const entryPage = context.pages()[0] ?? (await context.newPage());
+  await entryPage.goto(`${TRIPCOM_ORIGIN}/flights/`, { timeout: 60_000, waitUntil: "domcontentloaded" });
+  const observation = await collectConnectionObservation(entryPage, context);
+  if (observation.classification.state === "blocked") {
+    recordBlock(observation.classification.detail, observation.tripcomUrl);
+    appendJsonl(datasetFile, {
+      dataset: args.dataset,
+      key: "entry",
+      observedAt: new Date().toISOString(),
+      pageState: { text: observation.bodyText.slice(0, 300), url: observation.tripcomUrl },
+      period: args.period,
+      profile: args.profile,
+      status: "blocked"
+    });
+    console.error(`[collect] Blocked at the Trip.com entry page: ${observation.classification.detail}`);
+  }
+
+  for (const [index, target] of (exitCode === 0 ? targets : []).entries()) {
     const record = await loadTarget(context, target);
+    record.profile = args.profile;
     appendJsonl(datasetFile, record);
+    if (useAppProfile) heartbeatAppWorkerSlot(slotLabel);
     const cheapest = record.screen?.cheapest;
     console.log(
       `[collect] ${index + 1}/${targets.length} ${target.key} ${record.status} ${record.loadMs ?? "-"}ms` +
         (cheapest ? ` any=${cheapest.any} cn=${cheapest.chinese_airlines}` : "") +
-        (record.verify ? ` verify any=${record.verify.cheapest.any}` : "") +
+        (record.verify ? ` verify any=${record.verify.cheapest.any} cn=${record.verify.cheapest.chinese_airlines}` : "") +
         ` calendars=${record.calendarCount}`
     );
 
     if (record.status === "blocked") {
+      recordBlock(`Trip.com blocked research collection: ${record.pageState?.text?.trim() ?? "block page"}`, record.pageState?.url ?? null);
       console.error("[collect] Trip.com showed a block or captcha. Stopping; resume later.");
-      exitCode = 3;
       break;
     }
 
@@ -313,8 +377,12 @@ try {
       await sleep(gapSeconds * 1_000);
     }
   }
+} catch (error) {
+  console.error(`[collect] ${error instanceof Error ? error.message.split("\n")[0] : String(error)}`);
+  exitCode = exitCode || 1;
 } finally {
-  await context.close().catch(() => {});
+  await context?.close().catch(() => {});
+  if (useAppProfile) releaseAppWorkerSlot(slotLabel, { blockedDetail });
 }
 
 process.exit(exitCode);

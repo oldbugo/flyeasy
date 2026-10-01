@@ -162,3 +162,24 @@ test("calendar analysis flags a calendar that hides the cheapest days", () => {
   assert.ok(analyseCalendar(honest).cheapDayRecallOut > analyseCalendar(saleBlind).cheapDayRecallOut);
   assert.ok(runAllAnalyses(honest).A1_surface.pricedCount > 0);
 });
+
+test("cross-check pairs each app query with the nearest research screen under the session's filter", async () => {
+  const { crossCheckAppRuns } = await import("../../scripts/research/lib/cross-check.mjs");
+  const screen = (any, chinese) => ({ cheapest: { any, chinese_airlines: chinese } });
+  const research = [
+    { departDate: "2026-12-10", observedAt: "2026-10-02T00:00:00Z", returnDate: "2026-12-24", screen: screen(1047, 1090), status: "ok" },
+    { departDate: "2026-12-10", observedAt: "2026-10-05T00:00:00Z", returnDate: "2026-12-24", screen: screen(1100, 1200), status: "ok" }
+  ];
+  const result = crossCheckAppRuns(research, [
+    { departDate: "2026-12-10", price: 1090, restrictChinese: true, returnDate: "2026-12-24", runMode: "monitoring", startedAt: "2026-10-02T03:00:00Z" },
+    { departDate: "2026-12-10", price: 1047, restrictChinese: false, returnDate: "2026-12-24", runMode: "interactive", startedAt: "2026-10-02T01:00:00Z" },
+    { departDate: "2026-12-10", price: 1090, requireBaggage: true, returnDate: "2026-12-24", runMode: "monitoring", startedAt: "2026-10-02T03:00:00Z" },
+    { departDate: "2026-12-14", price: 1366, returnDate: "2026-12-28", runMode: "monitoring", startedAt: "2026-10-02T03:00:00Z" }
+  ]);
+
+  assert.equal(result.overall.count, 2);
+  assert.equal(result.overall.exactShare, 1);
+  assert.equal(result.byRunMode.monitoring.count, 1);
+  assert.equal(result.skippedBaggage, 1);
+  assert.equal(result.unmatched, 1);
+});

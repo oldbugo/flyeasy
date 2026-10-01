@@ -11,6 +11,7 @@ import Database from "better-sqlite3";
 
 import { resolveFlyEasyPaths } from "../lib/flyeasy-paths.mjs";
 import { runAllAnalyses } from "./lib/analyses.mjs";
+import { crossCheckAppRuns, summarizeVerifySpike } from "./lib/cross-check.mjs";
 import { buildSyntheticGrid, gridCoverage, loadCollectedGrid } from "./lib/fare-grid.mjs";
 import { findFlightListPayload, parseFlightListPayload, summarizeFlightList } from "./lib/parse-flight-list.mjs";
 import { PERIODS } from "./lib/periods.mjs";
@@ -187,6 +188,44 @@ for (const [periodKey, period] of Object.entries(PERIODS)) {
 }
 
 report.appRuns = appRunEvidence();
+
+// Cross-check research screens against every app run (monitoring and manual).
+function appQueriesForCrossCheck() {
+  const paths = resolveFlyEasyPaths();
+  if (!fs.existsSync(paths.dbPath)) return [];
+  const db = new Database(paths.dbPath, { fileMustExist: true, readonly: true });
+  try {
+    return db
+      .prepare(
+        `select json_extract(q.query_input_json, '$.departDate') departDate,
+                json_extract(q.query_input_json, '$.returnDate') returnDate,
+                json_extract(q.result_summary_json, '$.cheapestPrice') price,
+                q.started_at startedAt, r.run_mode runMode, s.name sessionName,
+                s.restrict_to_chinese_airlines restrictChinese,
+                s.require_included_checked_baggage requireBaggage
+         from query_execution q
+         join search_run r on r.id = q.search_run_id
+         join session s on s.id = r.session_id
+         where q.query_type = 'direct_round_trip'
+           and q.status = 'completed'`
+      )
+      .all()
+      .map((row) => ({ ...row, price: row.price === null ? null : Number(row.price), requireBaggage: Boolean(row.requireBaggage), restrictChinese: Boolean(row.restrictChinese) }));
+  } finally {
+    db.close();
+  }
+}
+
+const researchRecords = Object.keys(PERIODS).flatMap((periodKey) =>
+  ["rt_grid", "sentinel", "verify"].flatMap((dataset) => readJsonl(path.join(researchRoot, periodKey, `${dataset}.jsonl`)))
+);
+report.crossCheck = crossCheckAppRuns(researchRecords, appQueriesForCrossCheck());
+report.verifySpike = Object.fromEntries(
+  Object.keys(PERIODS).map((periodKey) => [
+    periodKey,
+    summarizeVerifySpike(readJsonl(path.join(researchRoot, periodKey, "verify.jsonl")))
+  ])
+);
 
 fs.mkdirSync(researchRoot, { recursive: true });
 const reportPath = path.join(researchRoot, "report.json");
