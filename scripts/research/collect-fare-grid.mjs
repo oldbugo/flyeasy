@@ -16,8 +16,6 @@ import fs from "node:fs";
 import path from "node:path";
 import zlib from "node:zlib";
 
-import { chromium } from "playwright";
-
 import { resolveFlyEasyPaths } from "../lib/flyeasy-paths.mjs";
 import { writeConnectionState } from "../automation/lib/runtime-state.mjs";
 import { TRIPCOM_ORIGIN, collectConnectionObservation } from "../automation/lib/tripcom-browser.mjs";
@@ -301,6 +299,9 @@ const paths = resolveFlyEasyPaths();
 if (!process.env.PLAYWRIGHT_BROWSERS_PATH && fs.existsSync(paths.playwrightBrowsersDir)) {
   process.env.PLAYWRIGHT_BROWSERS_PATH = paths.playwrightBrowsersDir;
 }
+// Playwright reads the browser folder when it loads, so load it only after
+// pointing it at the app's browsers (the app sets this before starting its worker).
+const { chromium } = await import("playwright");
 
 const targets = pendingTargets(buildTargets()).slice(0, Math.max(1, args.limit));
 const slotLabel = `${args.period}:${args.dataset}`;
