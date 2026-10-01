@@ -230,6 +230,33 @@ for (const [samplingMode, label] of [
     }));
 }
 
+test("summarises the experiment suite when its last arm finishes", TEST_TIMEOUT, () =>
+  withFake("normal", async (fake) => {
+    const dataDir = newDataDir("worker-experiment-group");
+    const db = new Database(path.join(dataDir, "flyeasy.db"));
+    const now = new Date().toISOString();
+    db.prepare(
+      `insert into strategy_experiment_group
+         (id, session_id, experiment_mode, status, sample_size, champion_strategy_key,
+          selected_strategy_keys_json, random_seed, created_at, updated_at)
+       values ('group_test', ?, 'baseline_parallel_random', 'running', 2, 'price_first_market_scan',
+          '["price_first_market_scan"]', 'seed', ?, ?)`
+    ).run(SESSION_ID, now, now);
+    db.prepare(
+      "update search_run set strategy_experiment_group_id = 'group_test', strategy_experiment_arm_key = 'price_first_market_scan', strategy_experiment_arm_label = 'Round trip baseline' where id = ?"
+    ).run(RUN_ID);
+    db.close();
+
+    const { output } = await runWorker(automationEnv(dataDir, fake.origin));
+    const check = new Database(path.join(dataDir, "flyeasy.db"), { readonly: true });
+    const group = check.prepare("select status, summary_json from strategy_experiment_group where id = 'group_test'").get();
+    check.close();
+
+    assert.equal(readRun(dataDir).status, "completed", output);
+    assert.equal(group.status, "completed");
+    assert.equal(JSON.parse(group.summary_json).arms[0].cheapestPrice, 1982);
+  }));
+
 test("records timeout evidence when results never load", TEST_TIMEOUT, () =>
   withFake("no-results-ever", async (fake) => {
     const dataDir = newDataDir("worker-timeout");

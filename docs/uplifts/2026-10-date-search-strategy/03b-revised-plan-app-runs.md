@@ -155,3 +155,41 @@ accumulated grid can answer the remaining hypotheses.
 - **Arms run about 10 minutes apart, one after another, within a suite.** Prices can drift a little
   in that time. The app chooses the arm order at random for each suite, so the
   drift does not consistently favour one arm.
+
+## Results log
+
+### Suite 1 · Period A · 2026-10-01
+
+Session "Test · Dec 2026": departures 1 Dec 2026 to 7 Jan 2027, 14–21 days,
+Chinese airlines only. All 44 searches succeeded, with no blocks. Each arm made
+11 searches.
+
+| Arm (run order) | Best fare | Pair | Regret vs suite best |
+|-----|----------:|------|-------:|
+| Rotating coverage | A$913 | 1 Dec → 19 Dec | 11.5% |
+| Start in the middle | A$1,379 | 29 Dec → 15 Jan | 68.4% |
+| **Weekday sampling** | **A$819** | 3 Dec → 18/19 Dec | 0% |
+| Control (round-trip baseline) | A$913 | 1 Dec → 15/16/19 Dec | 11.5% |
+
+Observations. One suite is not a verdict.
+
+- **Searching near the best pair is what found the cheapest fare.** Weekday
+  sampling reached 1 Dec → 19 Dec (A$913) through its model, then tried the
+  departure date one day either side: A$844, then A$819. Control's anchored
+  follow-up only varies the **return** date for a fixed departure. Its three
+  1 Dec probes all came back A$913, so it never tried 2–3 Dec departures.
+- **Start in the middle got stuck.** The middle of a December window is
+  Christmas, the most expensive part. All 11 searches went on improving that
+  region, and the restarts from ¼ and ¾ of the window never ran.
+- **Rotating coverage spread its searches too evenly.** It covered the whole
+  window and found the cheap region (1 Dec), but kept no budget for a search
+  next to the best pair.
+- **The prices so far support the date hypotheses.** The 39 pairs priced so far
+  pass A1 (the cheapest 10% are 33% below the median), A2 (weekday effects) and
+  A3 (smooth from day to day; lag-1 autocorrelation 0.70). That is still a
+  sparse sample.
+
+Bug found and fixed. The worker never selected the run's
+`strategy_experiment_group_id`, so suites were never summarised in the app (an
+existing bug since v1.0.0). This suite's summary was rebuilt once with the
+app's own refresh function.

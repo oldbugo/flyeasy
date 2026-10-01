@@ -5147,6 +5147,7 @@ const runRow = db
       r.id,
       r.session_id,
       r.status,
+      r.strategy_experiment_group_id,
       s.origin_airport,
       s.outbound_destination_city,
       s.return_destination_airport,
