@@ -7,7 +7,7 @@
 //
 // Usage:
 //   node scripts/research/collect-fare-grid.mjs --period A --dataset rt_grid --limit 40
-//   datasets: rt_grid | ow_out | ow_ret | sentinel | verify
+//   datasets: rt_grid | ow_out | ow_ret | sentinel | verify | rt_resnap
 //   options:  --limit N  --gap-min S  --gap-max S  --headful  --pairs 2026-12-10:2026-12-24,...
 //             --profile app   use the app worker's browser profile and visibility
 //                             setting; app runs wait until the batch finishes
@@ -40,7 +40,7 @@ import {
 } from "./lib/periods.mjs";
 
 const PARSER_VERSION = 1;
-const DATASETS = new Set(["rt_grid", "ow_out", "ow_ret", "sentinel", "verify"]);
+const DATASETS = new Set(["rt_grid", "ow_out", "ow_ret", "sentinel", "verify", "rt_resnap"]);
 const BLOCK_PATTERN = /whaleguard|captcha|verify you are|slide to|unusual traffic|access denied|robot/i;
 
 function readArgs(argv) {
@@ -64,7 +64,7 @@ const args = readArgs(process.argv.slice(2));
 const period = PERIODS[args.period];
 
 if (!period || !DATASETS.has(args.dataset)) {
-  console.error("Usage: --period A|B --dataset rt_grid|ow_out|ow_ret|sentinel|verify [--limit N]");
+  console.error("Usage: --period A|B --dataset rt_grid|ow_out|ow_ret|sentinel|verify|rt_resnap [--limit N]");
   process.exit(2);
 }
 
@@ -127,6 +127,12 @@ function buildTargets() {
     to: ROUTE.destinationCity
   });
 
+  // Rank-stability re-check (H9): a fixed random 20% of pairs, priced again
+  // about a week after the grid.
+  if (args.dataset === "rt_resnap") {
+    const pairs = seededShuffle(datePairs(period), `rt_resnap:${args.period}`);
+    return pairs.slice(0, Math.round(pairs.length * 0.2)).map(roundTrip);
+  }
   if (args.dataset === "rt_grid") {
     return seededShuffle(datePairs(period), `rt_grid:${args.period}`).map(roundTrip);
   }

@@ -3,7 +3,8 @@
 // sentinels again. Pauses between batches let queued app runs (including
 // monitoring) use the browser. Stops at the first block.
 //
-// Usage: node scripts/research/run-collection.mjs --period A [--batches 6] [--pause-min 15] [--batch-size 40]
+// Usage: node scripts/research/run-collection.mjs --period A [--batches 6] [--pause-min 15] [--batch-size 40] [--resnap]
+//   --resnap  re-price the fixed 20% sample (rank-stability check) instead of the grids
 
 import fs from "node:fs";
 import path from "node:path";
@@ -16,13 +17,14 @@ const collectorPath = fileURLToPath(new URL("./collect-fare-grid.mjs", import.me
 const researchRoot = path.resolve(process.env.FLYEASY_RESEARCH_DIR ?? "research/fare-grid");
 
 function readArgs(argv) {
-  const args = { batchSize: 40, batches: 6, pauseMin: 15 };
+  const args = { batchSize: 40, batches: 6, pauseMin: 15, resnap: false };
   for (let index = 0; index < argv.length; index += 1) {
     const value = argv[index + 1];
     if (argv[index] === "--period") args.period = value;
     if (argv[index] === "--batches") args.batches = Number(value);
     if (argv[index] === "--pause-min") args.pauseMin = Number(value);
     if (argv[index] === "--batch-size") args.batchSize = Number(value);
+    if (argv[index] === "--resnap") args.resnap = true;
   }
   return args;
 }
@@ -34,21 +36,34 @@ if (!period) {
   process.exit(2);
 }
 
-function countDone(dataset) {
+function readAttempts(dataset) {
   const file = path.join(researchRoot, args.period, `${dataset}.jsonl`);
-  if (!fs.existsSync(file)) return 0;
-  const done = new Set();
+  const attempts = new Map();
+  if (!fs.existsSync(file)) return attempts;
   for (const line of fs.readFileSync(file, "utf8").split("\n").filter(Boolean)) {
     const record = JSON.parse(line);
-    if (record.status === "ok" || record.status === "empty") done.add(record.key);
+    const entry = attempts.get(record.key) ?? { done: false, tries: 0 };
+    entry.tries += 1;
+    if (record.status === "ok" || record.status === "empty") entry.done = true;
+    attempts.set(record.key, entry);
   }
-  return done.size;
+  return attempts;
+}
+
+function countDone(dataset) {
+  return [...readAttempts(dataset).values()].filter((entry) => entry.done).length;
+}
+
+// The collector gives each key two attempts; a key that failed twice is settled.
+function countSettled(dataset) {
+  return [...readAttempts(dataset).values()].filter((entry) => entry.done || entry.tries >= 2).length;
 }
 
 const totals = {
   ow_out: departureDates(period).length,
   ow_ret: returnDates(period).length,
-  rt_grid: datePairs(period).length
+  rt_grid: datePairs(period).length,
+  rt_resnap: Math.round(datePairs(period).length * 0.2)
 };
 
 function runCollector(dataset, limit) {
@@ -84,14 +99,14 @@ function stopOn(status) {
 
 stopOn(await runWithBusyWait("sentinel", 6));
 
-if (countDone("verify") === 0) {
+if (!args.resnap && countDone("verify") === 0) {
   stopOn(await runWithBusyWait("verify", 20));
 }
 
 // Round-trip grid first; one-way grids after it.
-const queue = ["rt_grid", "ow_out", "ow_ret"];
+const queue = args.resnap ? ["rt_resnap"] : ["rt_grid", "ow_out", "ow_ret"];
 for (let batch = 0; batch < args.batches; batch += 1) {
-  const dataset = queue.find((name) => countDone(name) < totals[name]);
+  const dataset = queue.find((name) => countSettled(name) < totals[name]);
   if (!dataset) {
     console.log("[day] All grids for this period are complete.");
     break;
