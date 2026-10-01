@@ -1,6 +1,6 @@
 # Date Search Strategy Uplift (2026-10)
 
-Status: `Revised: testing inside FlyEasy (doc 03b)` · Branch: `feature/search-strategy`
+Status: `In-app experiment running (doc 03b)` · Merged to `main` on 2 Oct 2026
 
 ## Context
 
@@ -68,4 +68,9 @@ indirectly.
 
 ## Outcome
 
-_To be filled in once the analysis in doc 03 has chosen a strategy._
+In progress. Three date-plan strategies (rotating coverage, weekday
+sampling, start in the middle) are built as experiment arms next to the
+round-trip baseline (doc 03b). After 2 of 7 December suites, weekday sampling
+leads (0.4% mean regret, against 10.2% for the current baseline). The
+March–June suites have not started. The default baseline stays unchanged until
+both periods are done. Results are logged in doc 03b.
