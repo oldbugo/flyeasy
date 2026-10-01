@@ -1,6 +1,6 @@
 # Date Search Strategy Uplift (2026-10)
 
-Status: `Phase 0, collection paused` · Branch: `feature/search-strategy`
+Status: `Revised: testing inside FlyEasy (doc 03b)` · Branch: `feature/search-strategy`
 
 ## Context
 
@@ -31,7 +31,8 @@ percent of the true minimum) using a small fraction of the full search cost.
 | 01 | [Existing strategy review](01-existing-strategy-review.md) | What each current strategy does, what it costs, and how useful it is |
 | 02 | [Candidate strategies](02-candidate-strategies.md) | New approaches, the hypothesis each depends on, and expected cost |
 | 03 | [Test and analysis plan](03-test-and-analysis-plan.md) | Two-period data collection, offline replay, analyses, and decision rules |
-| 03a | [Spike results](03a-spike-results.md) | Research tooling, early evidence, and the Trip.com block |
+| 03a | [Spike results](03a-spike-results.md) | Early evidence, and the Trip.com blocks that ended automated collection |
+| 03b | [Revised plan](03b-revised-plan-app-runs.md) | **Current plan.** Test strategies through FlyEasy's own runs in both periods |
 
 ## Key findings so far
 

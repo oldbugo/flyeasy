@@ -1,13 +1,11 @@
-// A fare grid is the ground truth that analyses and strategy replays read:
-//   rt:  "depart_return" -> { price, airlineMinima }   (round-trip screens)
-//   out: date -> { price, airlineMinima }              (one-way MEL->CAN)
-//   ret: date -> { price, airlineMinima }              (one-way CAN->MEL)
-//   calendarOut / calendarRet: date -> price | null    (Trip.com calendar, unverified)
-// Missing cells are absent. The grid is built either from collected JSONL
-// or from the synthetic generator (simulator self-tests only).
-
-import fs from "node:fs";
-import path from "node:path";
+// A fare grid is what analyses and strategy replays read:
+//   rt:  "depart_return" -> { price, airlineMinima, observedAt }   (round-trip prices)
+//   out: date -> { price, airlineMinima }                          (one-way, outbound)
+//   ret: date -> { price, airlineMinima }                          (one-way, return)
+//   calendarOut / calendarRet: date -> price | null                (synthetic only)
+// Missing cells are absent. Real grids come from FlyEasy's own runs, which
+// price round trips only; the synthetic generator (simulator self-tests)
+// fills every field.
 
 import { addDays, datePairs, departureDates, returnDates } from "./periods.mjs";
 
@@ -15,60 +13,31 @@ export function pairKey(departDate, returnDate) {
   return `${departDate}_${returnDate}`;
 }
 
-function readJsonl(filePath) {
-  if (!fs.existsSync(filePath)) return [];
-  return fs
-    .readFileSync(filePath, "utf8")
-    .split("\n")
-    .filter(Boolean)
-    .map((line) => JSON.parse(line));
-}
-
-// Latest successful observation per key, for one fare variant.
-function latestByKey(records, fareVariant) {
-  const byKey = new Map();
-  for (const record of records) {
-    if (record.status !== "ok" || !record.screen) continue;
-    const price = record.screen.cheapest?.[fareVariant] ?? null;
-    if (price === null) continue;
-    const existing = byKey.get(record.key);
-    if (!existing || existing.observedAt < record.observedAt) {
-      byKey.set(record.key, {
-        airlineMinima: record.screen.singleAirlineMinima ?? {},
-        observedAt: record.observedAt,
-        price
-      });
-    }
-  }
-  return byKey;
-}
-
-export function loadCollectedGrid(periodDir, period, fareVariant = "chinese_airlines") {
-  const rt = Object.fromEntries(latestByKey(readJsonl(path.join(periodDir, "rt_grid.jsonl")), fareVariant));
-  const out = Object.fromEntries(latestByKey(readJsonl(path.join(periodDir, "ow_out.jsonl")), fareVariant));
-  const ret = Object.fromEntries(latestByKey(readJsonl(path.join(periodDir, "ow_ret.jsonl")), fareVariant));
-  const calendarOut = {};
-  const calendarRet = {};
-
-  // Keep the most recent one-way calendar price per day and direction.
-  for (const calendar of readJsonl(path.join(periodDir, "calendar.jsonl"))) {
-    if (calendar.kind !== "one_way_daily") continue;
-    const target = calendar.sourceDataset === "ow_ret" ? calendarRet : calendarOut;
-    for (const cell of calendar.cells) {
-      target[cell.departDate] = cell.price;
+// Builds a grid from the app's direct-sweep queries:
+//   rows: [{ departDate, returnDate, price, startedAt }]
+// Keeps the most recent price per pair inside the period. Callers pass rows
+// from sessions that share one airline filter, so prices are comparable.
+export function buildAppRunGrid(rows, period) {
+  const inPeriod = new Set(datePairs(period).map((pair) => pairKey(pair.departDate, pair.returnDate)));
+  const rt = {};
+  for (const row of rows) {
+    const key = pairKey(row.departDate, row.returnDate);
+    const price = Number(row.price);
+    if (!inPeriod.has(key) || !Number.isFinite(price) || price <= 0) continue;
+    if (!rt[key] || rt[key].observedAt < row.startedAt) {
+      rt[key] = { airlineMinima: {}, observedAt: row.startedAt, price };
     }
   }
 
   return {
-    calendarOut,
-    calendarRet,
-    fareVariant,
-    out,
+    calendarOut: {},
+    calendarRet: {},
+    out: {},
     pairs: datePairs(period),
     period,
-    ret,
+    ret: {},
     rt,
-    source: "collected"
+    source: "app_runs"
   };
 }
 

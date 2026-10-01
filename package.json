@@ -37,10 +37,7 @@
     "locations:sync-tripcom": "node scripts/locations/sync-tripcom-location-catalog.mjs",
     "tripcom:check": "node scripts/automation/check-connection.mjs",
     "tripcom:baseline-run": "node scripts/automation/run-baseline-search.mjs",
-    "research:collect": "node scripts/research/collect-fare-grid.mjs",
-    "research:report": "node scripts/research/build-report.mjs",
-    "research:day": "node scripts/research/run-collection.mjs",
-    "research:sessions": "node scripts/research/create-monitoring-sessions.mjs"
+    "research:report": "node scripts/research/build-report.mjs"
   },
   "dependencies": {
     "@phosphor-icons/react": "^2.1.10",

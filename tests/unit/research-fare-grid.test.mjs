@@ -2,8 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { analyseCalendar, runAllAnalyses } from "../../scripts/research/lib/analyses.mjs";
-import { buildSyntheticGrid, pairKey } from "../../scripts/research/lib/fare-grid.mjs";
-import { parseLowPriceCalendar } from "../../scripts/research/lib/parse-calendar.mjs";
+import { buildAppRunGrid, buildSyntheticGrid, pairKey } from "../../scripts/research/lib/fare-grid.mjs";
 import {
   findFlightListPayload,
   mergeFlightLists,
@@ -93,31 +92,6 @@ test("merging lists keeps the cheapest price per itinerary", () => {
   assert.equal(merged.itineraries.find((entry) => entry.uniqueId === "CZ322").price, 1400);
 });
 
-test("calendar parsing treats -1 as unknown and detects round-trip grids", () => {
-  const oneWay = parseLowPriceCalendar({
-    currency: "AUD",
-    lowPriceInCalenderDtoInfoList: [
-      { currencyPrice: 472, dDate: 1790812800 },
-      { currencyPrice: -1, dDate: 1790899200 }
-    ]
-  });
-  assert.equal(oneWay.kind, "one_way_daily");
-  assert.deepEqual(
-    oneWay.cells.map((cell) => [cell.departDate, cell.price]),
-    [
-      ["2026-10-01", 472],
-      ["2026-10-02", null]
-    ]
-  );
-
-  const roundTrip = parseLowPriceCalendar({
-    lowPriceInCalenderDtoInfoList: [{ aDate: 1797206400, currencyPrice: -1, dDate: 1794614400 }]
-  });
-  assert.equal(roundTrip.kind, "round_trip_grid");
-  assert.equal(roundTrip.cells[0].returnDate, "2026-12-14");
-  assert.equal(roundTrip.pricedCellCount, 0);
-});
-
 test("research periods match the plan's pair counts", () => {
   assert.equal(datePairs(PERIODS.A).length, 248);
   assert.equal(datePairs(PERIODS.B).length, 976);
@@ -163,23 +137,18 @@ test("calendar analysis flags a calendar that hides the cheapest days", () => {
   assert.ok(runAllAnalyses(honest).A1_surface.pricedCount > 0);
 });
 
-test("cross-check pairs each app query with the nearest research screen under the session's filter", async () => {
-  const { crossCheckAppRuns } = await import("../../scripts/research/lib/cross-check.mjs");
-  const screen = (any, chinese) => ({ cheapest: { any, chinese_airlines: chinese } });
-  const research = [
-    { departDate: "2026-12-10", observedAt: "2026-10-02T00:00:00Z", returnDate: "2026-12-24", screen: screen(1047, 1090), status: "ok" },
-    { departDate: "2026-12-10", observedAt: "2026-10-05T00:00:00Z", returnDate: "2026-12-24", screen: screen(1100, 1200), status: "ok" }
-  ];
-  const result = crossCheckAppRuns(research, [
-    { departDate: "2026-12-10", price: 1090, restrictChinese: true, returnDate: "2026-12-24", runMode: "monitoring", startedAt: "2026-10-02T03:00:00Z" },
-    { departDate: "2026-12-10", price: 1047, restrictChinese: false, returnDate: "2026-12-24", runMode: "interactive", startedAt: "2026-10-02T01:00:00Z" },
-    { departDate: "2026-12-10", price: 1090, requireBaggage: true, returnDate: "2026-12-24", runMode: "monitoring", startedAt: "2026-10-02T03:00:00Z" },
-    { departDate: "2026-12-14", price: 1366, returnDate: "2026-12-28", runMode: "monitoring", startedAt: "2026-10-02T03:00:00Z" }
-  ]);
+test("app-run grid keeps the latest price per pair inside the period", () => {
+  const grid = buildAppRunGrid(
+    [
+      { departDate: "2026-12-10", price: 1090, returnDate: "2026-12-24", startedAt: "2026-09-30T13:00:00Z" },
+      { departDate: "2026-12-10", price: 1089, returnDate: "2026-12-24", startedAt: "2026-10-01T00:16:00Z" },
+      { departDate: "2026-12-14", price: null, returnDate: "2026-12-28", startedAt: "2026-10-01T00:17:00Z" },
+      { departDate: "2027-01-05", price: 1500, returnDate: "2027-01-19", startedAt: "2026-10-01T00:18:00Z" }
+    ],
+    PERIODS.A
+  );
 
-  assert.equal(result.overall.count, 2);
-  assert.equal(result.overall.exactShare, 1);
-  assert.equal(result.byRunMode.monitoring.count, 1);
-  assert.equal(result.skippedBaggage, 1);
-  assert.equal(result.unmatched, 1);
+  assert.equal(grid.rt[pairKey("2026-12-10", "2026-12-24")].price, 1089);
+  assert.equal(Object.keys(grid.rt).length, 1);
+  assert.equal(grid.source, "app_runs");
 });

@@ -1,5 +1,10 @@
 # 03 · Test and Analysis Plan
 
+> **Superseded for data collection.** Trip.com blocked automated collection,
+> so the ground-truth grids below will not be collected. The current plan is
+> [03b](03b-revised-plan-app-runs.md). The analyses and decision thresholds
+> here still apply to whatever data FlyEasy's own runs produce.
+
 ## Approach in one paragraph
 
 Collect a **complete price grid once** for two very different travel periods.
