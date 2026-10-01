@@ -124,3 +124,29 @@ runs may sample departures after the period ends (e.g. up to 7 Jan 2027 for
 the December session). The cross-check skips pairs that are outside the grid.
 Whether this is intended (see `docs/uplifts/2026-03-session-date-simplification`)
 should be confirmed before the new baseline strategy is built.
+
+## Second block (2026-10-01): the app worker's profile, hidden browser
+
+Claude cannot open a visible browser from its sandbox, so it tried the app
+worker's profile with the browser hidden (the app's own "show automation
+browser" off mode). Trip.com returned `whaleguard block` at the flights home
+page, before any search. The collector stopped and set the app's connection
+state to `blocked`.
+
+Every automated client Claude can run has now been blocked. Collection stays
+stopped, and nothing retries or tries a different client to get around the
+block. The `--hidden` option was not kept. The remaining untested path is the
+app worker's visible browser on the owner's machine.
+
+Options that do not depend on getting past Trip.com's bot protection:
+
+- **A licensed fare API** for the grids, for example Amadeus Self-Service
+  (Flight Offers Search, Flight Cheapest Date Search). Claude can collect
+  through it unattended with the owner's API key, read from an environment
+  variable. Prices will differ from Trip.com's. The date structure
+  (weekday effects, one-way decomposition, smoothness) is the research
+  question, and that should transfer. Check the provider's current quota and
+  terms first.
+- **The app's own runs on the owner's machine**: manual or monitoring runs in
+  the visible browser, cross-checked with `lib/cross-check.mjs`. This gives
+  far fewer pairs than a grid.
