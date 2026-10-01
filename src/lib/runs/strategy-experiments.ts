@@ -6,7 +6,12 @@ import { getDb } from "@/lib/db/client";
 import { createId } from "@/lib/db/ids";
 import { runAnalysisSnapshots, searchRuns, strategyExperimentGroups } from "@/lib/db/schema/run";
 import { sessions } from "@/lib/db/schema/session";
-import type { SearchStrategyBundleSelection } from "@/lib/search-strategies/catalog";
+import {
+  DATE_STRATEGY_TEST_ARMS,
+  isMarketScanStrategySelection,
+  type DateSamplingMode,
+  type SearchStrategyBundleSelection
+} from "@/lib/search-strategies/catalog";
 import { listSessionStrategySelections } from "@/lib/search-strategies/session-strategies";
 
 import { createRunFromSession } from "./create-run-from-session";
@@ -33,22 +38,36 @@ function createDeterministicUnitInterval(seed: string) {
   return Number.parseInt(slice, 16) / 16 ** slice.length;
 }
 
+type ExperimentArm = {
+  armKey: string;
+  isChampion: boolean;
+  samplingModeOverride: DateSamplingMode | null;
+  strategyKey: SearchStrategyBundleSelection["strategyKey"];
+  title: string;
+};
+
+function shuffleBySeed<T>(values: T[], seed: string, keyOf: (value: T) => string) {
+  return [...values].sort(
+    (left, right) =>
+      createDeterministicUnitInterval(`${seed}:${keyOf(left)}`) -
+      createDeterministicUnitInterval(`${seed}:${keyOf(right)}`)
+  );
+}
+
+// The session's current baseline is the champion. The date-plan arms under
+// test (docs/uplifts/2026-10-date-search-strategy/03b) take the challenger
+// slots first; other baselines fill any slots left over.
 function selectExperimentBaselineArms(
   selections: SearchStrategyBundleSelection[],
   sampleSize: number,
   seed: string
-) {
+): ExperimentArm[] {
   const baselineSelections = selections.filter(
     (selection) =>
       (selection.strategyKey === "price_first_market_scan" ||
         selection.strategyKey === "adaptive_coverage_market_scan") &&
       selection.compatibility.isCompatible
   );
-
-  if (baselineSelections.length < 2) {
-    return [];
-  }
-
   const champion =
     baselineSelections.find((selection) => selection.enabled) ?? baselineSelections[0] ?? null;
 
@@ -56,33 +75,65 @@ function selectExperimentBaselineArms(
     return [];
   }
 
-  const challengers = baselineSelections
+  const toArm = (selection: SearchStrategyBundleSelection): ExperimentArm => ({
+    armKey: selection.strategyKey,
+    isChampion: selection.strategyKey === champion.strategyKey,
+    samplingModeOverride: null,
+    strategyKey: selection.strategyKey,
+    title: selection.title
+  });
+  const hasRoundTripBaseline = baselineSelections.some(
+    (selection) => selection.strategyKey === "price_first_market_scan"
+  );
+  const dateArms: ExperimentArm[] = hasRoundTripBaseline
+    ? DATE_STRATEGY_TEST_ARMS.map((arm) => ({
+        armKey: arm.armKey,
+        isChampion: false,
+        samplingModeOverride: arm.samplingMode,
+        strategyKey: "price_first_market_scan",
+        title: arm.title
+      }))
+    : [];
+  const otherBaselines = baselineSelections
     .filter((selection) => selection.strategyKey !== champion.strategyKey)
-    .sort(
-      (left, right) =>
-        createDeterministicUnitInterval(`${seed}:${left.strategyKey}`) -
-        createDeterministicUnitInterval(`${seed}:${right.strategyKey}`)
-    );
+    .map(toArm);
+  const challengers = [
+    ...shuffleBySeed(dateArms, seed, (arm) => arm.armKey),
+    ...shuffleBySeed(otherBaselines, seed, (arm) => arm.armKey)
+  ];
+  const selected = [toArm(champion), ...challengers].slice(0, Math.max(0, sampleSize));
 
-  return [champion, ...challengers].slice(0, Math.min(sampleSize, baselineSelections.length));
+  // Run the arms in a random order so price drift during a suite does not
+  // consistently favour whichever arm runs first.
+  return selected.length < 2 ? [] : shuffleBySeed(selected, `${seed}:order`, (arm) => arm.armKey);
 }
 
 function overrideBaselineSelection(
   selections: SearchStrategyBundleSelection[],
-  baselineStrategyKey: SearchStrategyBundleSelection["strategyKey"]
-) {
+  arm: ExperimentArm
+): SearchStrategyBundleSelection[] {
   return selections.map((selection) => {
     if (
-      selection.strategyKey === "price_first_market_scan" ||
-      selection.strategyKey === "adaptive_coverage_market_scan"
+      selection.strategyKey !== "price_first_market_scan" &&
+      selection.strategyKey !== "adaptive_coverage_market_scan"
     ) {
+      return selection;
+    }
+
+    const enabled = selection.strategyKey === arm.strategyKey;
+
+    if (isMarketScanStrategySelection(selection)) {
       return {
         ...selection,
-        enabled: selection.strategyKey === baselineStrategyKey
+        config: {
+          ...selection.config,
+          samplingModeOverride: enabled ? arm.samplingModeOverride : null
+        },
+        enabled
       };
     }
 
-    return selection;
+    return { ...selection, enabled };
   });
 }
 
@@ -108,7 +159,7 @@ export async function createBaselineExperimentSuite(sessionId: string) {
 
   const timestamp = nowIso();
   const groupId = createId("strategy_experiment");
-  const champion = selectedArms[0] ?? null;
+  const champion = selectedArms.find((arm) => arm.isChampion) ?? null;
 
   db.insert(strategyExperimentGroups)
     .values({
@@ -118,7 +169,7 @@ export async function createBaselineExperimentSuite(sessionId: string) {
       status: "running",
       sampleSize: selectedArms.length,
       championStrategyKey: champion?.strategyKey ?? null,
-      selectedStrategyKeysJson: JSON.stringify(selectedArms.map((arm) => arm.strategyKey)),
+      selectedStrategyKeysJson: JSON.stringify(selectedArms.map((arm) => arm.armKey)),
       randomSeed,
       summaryJson: null,
       startedAt: timestamp,
@@ -133,17 +184,17 @@ export async function createBaselineExperimentSuite(sessionId: string) {
   for (const arm of selectedArms) {
     const createdRun = await createRunFromSession(sessionId, {
       experimentMetadata: {
-        armKey: arm.strategyKey,
+        armKey: arm.armKey,
         armLabel: arm.title,
         groupId
       },
-      strategySelectionsOverride: overrideBaselineSelection(strategySelections, arm.strategyKey)
+      strategySelectionsOverride: overrideBaselineSelection(strategySelections, arm)
     });
 
     if (createdRun) {
       runs.push({
         ...createdRun,
-        armKey: arm.strategyKey,
+        armKey: arm.armKey,
         armLabel: arm.title
       });
     }

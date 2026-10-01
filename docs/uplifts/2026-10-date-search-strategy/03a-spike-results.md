@@ -122,8 +122,9 @@ creating scheduled monitoring sessions needs the owner's approval.
 reads `departure_end_date`. For the research sessions, this means monitoring
 runs may sample departures after the period ends (e.g. up to 7 Jan 2027 for
 the December session). The cross-check skips pairs that are outside the grid.
-Whether this is intended (see `docs/uplifts/2026-03-session-date-simplification`)
-should be confirmed before the new baseline strategy is built.
+Update: this is intended. The session form saves the latest return date as
+`departure_end_date` (`src/app/sessions/actions.ts`). The generator now also
+respects the field, which changes nothing for app-created sessions (doc 03b).
 
 ## Second block (2026-10-01): the app worker's profile, hidden browser
 

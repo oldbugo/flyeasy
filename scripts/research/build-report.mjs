@@ -20,7 +20,7 @@ import { resolveFlyEasyPaths } from "../lib/flyeasy-paths.mjs";
 import { runAllAnalyses } from "./lib/analyses.mjs";
 import { buildAppRunGrid, buildSyntheticGrid, gridCoverage, pairKey } from "./lib/fare-grid.mjs";
 import { findFlightListPayload, parseFlightListPayload, summarizeFlightList } from "./lib/parse-flight-list.mjs";
-import { PERIODS, datePairs } from "./lib/periods.mjs";
+import { PERIODS } from "./lib/periods.mjs";
 import { buildSubWindows, replayStrategies } from "./lib/replay.mjs";
 
 const quick = process.argv.includes("--quick");
@@ -56,9 +56,13 @@ function readAppQueries(db) {
               s.restrict_to_chinese_airlines restrictChinese,
               s.require_included_checked_baggage requireBaggage
        from query_execution q
+       join strategy_execution se on se.id = q.strategy_execution_id
        join search_run r on r.id = q.search_run_id
        join session s on s.id = r.session_id
        where q.query_type = 'direct_round_trip'
+         -- Only the baseline's own searches (sweep and anchored follow-up), so
+         -- every experiment arm is scored on the same 11-search budget.
+         and se.strategy_type in ('packaged_direct_sweep', 'packaged_departure_anchor_followup')
        order by q.started_at`
     )
     .all()
@@ -126,11 +130,24 @@ function screenChecks(db, artifactsDir) {
 
 // Experiment suites: arms of one suite run back to back on the same session,
 // so each arm is scored against the best price any arm in that suite found.
+// A suite belongs to the period its earliest searched departure falls in. All
+// of a suite's searches count, including departures past the period's end:
+// app sessions set the latest departure to the latest return date, so a
+// December session also searches early-January departures.
 function summarizeExperiments(queries, period) {
-  const inPeriod = new Set(datePairs(period).map((pair) => pairKey(pair.departDate, pair.returnDate)));
+  const groupStart = new Map();
+  for (const row of queries) {
+    if (!row.groupId || !row.departDate) continue;
+    const current = groupStart.get(row.groupId);
+    if (!current || row.departDate < current) groupStart.set(row.groupId, row.departDate);
+  }
+  const inPeriod = (groupId) => {
+    const start = groupStart.get(groupId);
+    return Boolean(start) && start >= period.departureStart && start <= period.departureEnd;
+  };
   const groups = new Map();
   for (const row of queries) {
-    if (!row.groupId || !inPeriod.has(pairKey(row.departDate, row.returnDate))) continue;
+    if (!row.groupId || !inPeriod(row.groupId)) continue;
     if (!groups.has(row.groupId)) groups.set(row.groupId, new Map());
     const arms = groups.get(row.groupId);
     const arm = arms.get(row.armKey) ?? { armKey: row.armKey, armLabel: row.armLabel, best: null, queries: 0, startedAt: row.startedAt };

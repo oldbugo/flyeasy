@@ -3,6 +3,8 @@
 // app. Every oracle call costs one page load; a strategy may not exceed its
 // budget. See docs/uplifts/2026-10-date-search-strategy/02-candidate-strategies.md.
 
+import { createDatePlanner } from "../../automation/lib/date-planners.mjs";
+
 import { pairKey } from "./fare-grid.mjs";
 import { addDays } from "./periods.mjs";
 
@@ -78,10 +80,6 @@ export function sampleEvenly(values, limit) {
   return picked;
 }
 
-function weekdayOf(isoDate) {
-  return new Date(`${isoDate}T00:00:00.000Z`).getUTCDay();
-}
-
 function screenInOrder(oracle, pairs) {
   for (const pair of pairs) {
     if (oracle.remaining <= 0) return;
@@ -132,20 +130,28 @@ function localSearch(oracle, window, { radius = 3 } = {}) {
   }
 }
 
+// Drives one of the app's date planners against the oracle, so the
+// simulated strategy is the same code the search worker runs.
+function runPlanner(oracle, window, mode, random) {
+  const planner = createDatePlanner(mode, {
+    budget: oracle.remaining,
+    pairs: window.pairs,
+    seed: String(Math.floor((random ?? Math.random)() * 1e9))
+  });
+  let step = planner.next();
+  while (!step.done) {
+    const result = oracle.screen(step.value.departDate, step.value.returnDate);
+    if (result === undefined) return;
+    step = planner.next(result);
+  }
+}
+
 export const STRATEGIES = {
   // S1: today's baseline (evenly spaced over the flattened pair list).
   S1_even: (oracle, window) => screenInOrder(oracle, sampleEvenly(window.pairs, oracle.remaining)),
 
-  // S1r: same, with a random offset so repeated runs cover new pairs.
-  S1r_rotating: (oracle, window, random) => {
-    const step = Math.max(1, window.pairs.length / Math.max(1, oracle.remaining));
-    const offset = random() * step;
-    const picked = [];
-    for (let at = offset; at < window.pairs.length && picked.length < oracle.remaining; at += step) {
-      picked.push(window.pairs[Math.floor(at)]);
-    }
-    screenInOrder(oracle, picked);
-  },
+  // S1r: rotating coverage (the app's planner).
+  S1r_rotating: (oracle, window, random) => runPlanner(oracle, window, "rotating_coverage", random),
 
   // S2: trusts the calendar for ranking, then screens the top pairs.
   S2_calendar: (oracle, window) => {
@@ -168,78 +174,11 @@ export const STRATEGIES = {
   // S3b: one-way first, scored per airline (same airline both ways).
   S3b_airline_one_way: (oracle, window) => oneWayStrategy(oracle, window, { airlineAware: true }),
 
-  // S4w: start in the middle; weekly steps first, then daily steps.
-  S4w_middle_pattern: (oracle, window) => {
-    const pairSet = new Map(window.pairs.map((pair) => [pairKey(pair.departDate, pair.returnDate), pair]));
-    const deps = window.departDates;
-    const durations = [...new Set(window.pairs.map((pair) => pair.durationDays))].sort((a, b) => a - b);
-    const starts = [0.5, 0.25, 0.75].map((fraction) => ({
-      departDate: deps[Math.floor((deps.length - 1) * fraction)],
-      durationDays: durations[Math.floor((durations.length - 1) / 2)]
-    }));
-    const price = (departDate, durationDays) => {
-      const returnDate = addDays(departDate, durationDays);
-      if (!pairSet.has(pairKey(departDate, returnDate))) return Number.POSITIVE_INFINITY;
-      const result = oracle.screen(departDate, returnDate);
-      return result?.price ?? Number.POSITIVE_INFINITY;
-    };
+  // S4w: start in the middle (the app's planner).
+  S4w_middle_pattern: (oracle, window, random) => runPlanner(oracle, window, "middle_start", random),
 
-    for (const start of starts) {
-      if (oracle.remaining <= 0) return;
-      let current = { ...start, price: price(start.departDate, start.durationDays) };
-      for (const step of [7, 3, 1]) {
-        let moved = true;
-        while (moved && oracle.remaining > 0) {
-          moved = false;
-          const moves = [
-            [step, 0],
-            [-step, 0],
-            [0, Math.min(step, 3)],
-            [0, -Math.min(step, 3)]
-          ];
-          for (const [dd, dr] of moves) {
-            if (oracle.remaining <= 0) break;
-            const departDate = addDays(current.departDate, dd);
-            const durationDays = current.durationDays + dr;
-            const candidate = price(departDate, durationDays);
-            if (candidate < current.price) {
-              current = { departDate, durationDays, price: candidate };
-              moved = true;
-              break;
-            }
-          }
-        }
-      }
-    }
-  },
-
-  // S5: balanced weekday x week design, additive model, screen predictions.
-  S5_structured: (oracle, window) => {
-    const designSize = Math.max(8, Math.floor(oracle.remaining * 0.55));
-    const byCell = new Map();
-    for (const pair of window.pairs) {
-      const week = Math.floor(window.departDates.indexOf(pair.departDate) / 7);
-      const cell = `${weekdayOf(pair.departDate)}_${weekdayOf(pair.returnDate)}_${week % 3}`;
-      if (!byCell.has(cell)) byCell.set(cell, []);
-      byCell.get(cell).push(pair);
-    }
-    const design = sampleEvenly(
-      [...byCell.values()].map((pairs) => pairs[Math.floor(pairs.length / 2)]),
-      designSize
-    );
-    screenInOrder(oracle, design);
-
-    const observations = design
-      .map((pair) => ({ pair, result: oracle.seen.get(pairKey(pair.departDate, pair.returnDate)) }))
-      .filter((entry) => entry.result);
-    const model = fitAdditiveModel(observations, window);
-    const ranked = rankPairs(
-      window.pairs.filter((pair) => !oracle.seen.has(pairKey(pair.departDate, pair.returnDate))),
-      model
-    );
-    screenInOrder(oracle, ranked.slice(0, Math.max(0, oracle.remaining - 4)));
-    localSearch(oracle, window, { radius: 1 });
-  },
+  // S5: weekday sampling with an additive model (the app's planner).
+  S5_structured: (oracle, window, random) => runPlanner(oracle, window, "weekday_sampling", random),
 
   // S8: one-way first (airline-aware), then local search around the best.
   S8_hybrid: (oracle, window) => {
@@ -290,37 +229,4 @@ function oneWayStrategy(oracle, window, { airlineAware, reserveForLocal = 0 }) {
 
   const reserve = Math.floor(oracle.remaining * reserveForLocal);
   screenInOrder(oracle, ranked.slice(0, Math.max(0, oracle.remaining - reserve)));
-}
-
-// price ≈ mean + depart-weekday + return-weekday + depart-week effects,
-// fitted by a few rounds of backfitting on the screened pairs.
-function fitAdditiveModel(observations, window) {
-  const features = (pair) => [
-    `dw${weekdayOf(pair.departDate)}`,
-    `rw${weekdayOf(pair.returnDate)}`,
-    `wk${Math.floor(window.departDates.indexOf(pair.departDate) / 7)}`
-  ];
-  const mean = observations.reduce((sum, entry) => sum + entry.result.price, 0) / Math.max(1, observations.length);
-  const effects = new Map();
-
-  for (let round = 0; round < 8; round += 1) {
-    for (let featureIndex = 0; featureIndex < 3; featureIndex += 1) {
-      const sums = new Map();
-      for (const { pair, result } of observations) {
-        const keys = features(pair);
-        const others = keys.reduce((sum, key, index) => (index === featureIndex ? sum : sum + (effects.get(key) ?? 0)), 0);
-        const residual = result.price - mean - others;
-        const entry = sums.get(keys[featureIndex]) ?? { count: 0, total: 0 };
-        entry.count += 1;
-        entry.total += residual;
-        sums.set(keys[featureIndex], entry);
-      }
-      for (const [key, { count, total }] of sums) {
-        // Shrink effects seen only once or twice toward zero.
-        effects.set(key, total / (count + 1));
-      }
-    }
-  }
-
-  return (pair) => mean + features(pair).reduce((sum, key) => sum + (effects.get(key) ?? 0), 0);
 }

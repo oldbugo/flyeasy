@@ -95,6 +95,18 @@ function formatSamplingMode(value: string | null | undefined) {
     return "Adaptive coverage";
   }
 
+  if (value === "rotating_coverage") {
+    return "Rotating coverage";
+  }
+
+  if (value === "weekday_sampling") {
+    return "Weekday sampling";
+  }
+
+  if (value === "middle_start") {
+    return "Start in the middle";
+  }
+
   return "Even coverage";
 }
 
