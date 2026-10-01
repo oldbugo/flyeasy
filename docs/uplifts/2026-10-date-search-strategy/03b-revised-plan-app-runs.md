@@ -193,3 +193,28 @@ Bug found and fixed. The worker never selected the run's
 `strategy_experiment_group_id`, so suites were never summarised in the app (an
 existing bug since v1.0.0). This suite's summary was rebuilt once with the
 app's own refresh function.
+
+### Suite 2 · Period A · 2026-10-01 (about an hour after suite 1)
+
+All 44 searches succeeded. The app summarised the suite on its own, which
+confirms the group-summary fix on a real run.
+
+| Arm (run order) | Best fare | Pair | Regret vs suite best |
+|-----|----------:|------|-------:|
+| Start in the middle | A$1,379 | 29 Dec → 15 Jan | 64.6% |
+| **Rotating coverage** | **A$838** | 3 Dec → 21 Dec | 0% |
+| Control | A$913 | 1 Dec → 15/16/19/22 Dec | 9.0% |
+| Weekday sampling | A$845 | 2 Dec → 16/17/22 Dec | 0.8% |
+
+After 2 suites: Weekday sampling has a mean regret of 0.4% (1 win), Rotating
+coverage 5.7% (1 win), Control 10.2%, Start in the middle 66.5%.
+
+- **Control and Start in the middle are deterministic.** On the same window
+  they searched exactly the same 11 pairs as in suite 1, and got the same
+  prices. Further suites only add information about these two arms as prices
+  move over the coming days.
+- **Rotating coverage depends on its random offset.** This time its first pair
+  landed on 3 Dec (A$838), down from 1 Dec (A$913) in suite 1.
+- **Every winning fare so far is an early-December departure (1–3 Dec) with a
+  15–21 day trip.** All 55 pairs priced so far put the cheapest at 3 Dec → 18 Dec
+  (A$819).
