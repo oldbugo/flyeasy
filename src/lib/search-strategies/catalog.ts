@@ -13,6 +13,25 @@ export type SearchStrategyBundleKey =
   | "recommendation_date_coverage"
   | "stitched_value_probe";
 
+// Date-sampling variants of the round-trip baseline, tested as experiment
+// arms (docs/uplifts/2026-10-date-search-strategy/03b-revised-plan-app-runs.md).
+// The planners live in scripts/automation/lib/date-planners.mjs.
+export type DateSamplingMode = "rotating_coverage" | "weekday_sampling" | "middle_start";
+
+export const DATE_STRATEGY_TEST_ARMS: ReadonlyArray<{
+  armKey: string;
+  samplingMode: DateSamplingMode;
+  title: string;
+}> = [
+  { armKey: "date_rotating_coverage", samplingMode: "rotating_coverage", title: "Rotating coverage" },
+  { armKey: "date_weekday_sampling", samplingMode: "weekday_sampling", title: "Weekday sampling" },
+  { armKey: "date_middle_start", samplingMode: "middle_start", title: "Start in the middle" }
+];
+
+export function isDateSamplingMode(value: unknown): value is DateSamplingMode {
+  return value === "rotating_coverage" || value === "weekday_sampling" || value === "middle_start";
+}
+
 export type MarketScanBundleConfig = {
   anchoredReturnSweepLimitOverride: number | null;
   anchorDepartureDateLimitOverride: number | null;
@@ -23,6 +42,8 @@ export type MarketScanBundleConfig = {
   maxReturnOptionsPerOutboundOverride: number | null;
   returnOptionExpansionTargetLimitOverride: number | null;
   returnOptionExpansionVariationLimitOverride: number | null;
+  // Set only on experiment arms; null keeps today's even coverage.
+  samplingModeOverride: DateSamplingMode | null;
 };
 
 export type AdaptiveCoverageMarketScanConfig = MarketScanBundleConfig & {
@@ -301,7 +322,10 @@ export function normalizeStrategyBundleConfig<K extends SearchStrategyBundleKey>
         source.returnOptionExpansionVariationLimitOverride,
         1,
         6
-      )
+      ),
+      samplingModeOverride: isDateSamplingMode(source.samplingModeOverride)
+        ? source.samplingModeOverride
+        : null
     } as SearchStrategyBundleConfigByKey[K];
   }
 
@@ -342,7 +366,8 @@ export function normalizeStrategyBundleConfig<K extends SearchStrategyBundleKey>
         source.returnOptionExpansionVariationLimitOverride,
         1,
         6
-      )
+      ),
+      samplingModeOverride: null
     } as SearchStrategyBundleConfigByKey[K];
   }
 
@@ -449,25 +474,35 @@ export function resolveMarketScanExecutionConfig(
   config: MarketScanBundleConfig
 ) {
   const defaults = getSearchIntensityDefaults(session.searchIntensity);
+  const anchoredReturnSweepLimit =
+    config.anchoredReturnSweepLimitOverride ?? defaults.anchoredReturnSweepLimit;
+  const anchorDepartureDateLimit =
+    config.anchorDepartureDateLimitOverride ?? defaults.anchorDepartureDateLimit;
+  const directSweepLimit = config.directSweepLimitOverride ?? defaults.directSweepLimit;
+  // A date-sampling arm gets as many searches as the baseline's sweep plus its
+  // anchored follow-up, and spends them all on its own date plan.
+  const samplingModeOverride = config.samplingModeOverride ?? null;
+  const followupSearches = config.enableAnchoredDateFollowup
+    ? anchorDepartureDateLimit * anchoredReturnSweepLimit
+    : 0;
 
   return {
-    anchoredReturnSweepLimit:
-      config.anchoredReturnSweepLimitOverride ?? defaults.anchoredReturnSweepLimit,
-    anchorDepartureDateLimit:
-      config.anchorDepartureDateLimitOverride ?? defaults.anchorDepartureDateLimit,
+    anchoredReturnSweepLimit,
+    anchorDepartureDateLimit,
     baselineReturnOptionExpansionTargetLimit:
       config.returnOptionExpansionTargetLimitOverride ??
       defaults.baselineReturnOptionExpansionTargetLimit,
     baselineReturnOptionExpansionVariationLimit:
       config.returnOptionExpansionVariationLimitOverride ??
       defaults.baselineReturnOptionExpansionVariationLimit,
-    directSweepLimit: config.directSweepLimitOverride ?? defaults.directSweepLimit,
+    directSweepLimit: samplingModeOverride ? directSweepLimit + followupSearches : directSweepLimit,
     enableReturnOptionExpansion: config.enableReturnOptionExpansion,
-    enableAnchoredDateFollowup: config.enableAnchoredDateFollowup,
+    enableAnchoredDateFollowup: samplingModeOverride ? false : config.enableAnchoredDateFollowup,
     maxOutboundOptionsPerQuery:
       config.maxOutboundOptionsPerQueryOverride ?? defaults.maxOutboundOptionsPerQuery,
     maxReturnOptionsPerOutbound:
-      config.maxReturnOptionsPerOutboundOverride ?? defaults.maxReturnOptionsPerOutbound
+      config.maxReturnOptionsPerOutboundOverride ?? defaults.maxReturnOptionsPerOutbound,
+    samplingMode: samplingModeOverride ?? ("even_coverage" as const)
   };
 }
 
@@ -544,14 +579,16 @@ const priceFirstMarketScanDefinition: StrategyBundleDefinition<"price_first_mark
       {
         estimatedSearchCost: resolved.directSweepLimit,
         reason:
-          "Sweep round-trip date pairs across the allowed window before any later strategy cluster builds on those results.",
+          resolved.samplingMode === "even_coverage"
+            ? "Sweep round-trip date pairs across the allowed window before any later strategy cluster builds on those results."
+            : `Experiment arm: choose round-trip date pairs with the "${DATE_STRATEGY_TEST_ARMS.find((arm) => arm.samplingMode === resolved.samplingMode)?.title}" date plan, spending the baseline's sweep and anchored follow-up budget on it.`,
         strategyPayload: {
           directSweepLimit: resolved.directSweepLimit,
           engine: "tripcom_live",
           maxCandidatesPerQuery: 3,
           maxOutboundOptionsPerQuery: resolved.maxOutboundOptionsPerQuery,
           maxReturnOptionsPerOutbound: resolved.maxReturnOptionsPerOutbound,
-          samplingMode: "even_coverage",
+          samplingMode: resolved.samplingMode,
           sessionId: session.id,
           type: "packaged_direct_sweep"
         },

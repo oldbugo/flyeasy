@@ -37,6 +37,7 @@ import {
   TRIPCOM_ORIGIN
 } from "./lib/tripcom-browser.mjs";
 import { isChinaBasedAirline } from "./lib/china-based-airlines.mjs";
+import { DATE_SAMPLING_LABELS, DATE_SAMPLING_MODES, createDatePlanner } from "./lib/date-planners.mjs";
 import { createFlightDataRecorder } from "./lib/flight-data-capture.mjs";
 import {
   readFirstCardSignature,
@@ -682,8 +683,7 @@ function buildBaselineExecutionEfficiencySummary({
   return {
     analysisType: "baseline_execution_efficiency",
     analysedAt: nowIso(),
-    baselineLabel:
-      samplingMode === "adaptive_coverage" ? "Adaptive coverage baseline" : "Round trip baseline",
+    baselineLabel: DATE_SAMPLING_LABELS[samplingMode] ?? "Round trip baseline",
     samplingMode,
     directSweepLimit: Number(directSweepLimit ?? executedQueryCount),
     pairUniverseCount: Number(pairUniverseCount ?? 0),
@@ -730,7 +730,12 @@ function enumerateDatePairs(runRow, limit) {
   const durationMin = Math.max(1, Number(runRow.duration_min_days ?? 7));
   const durationMax = Math.max(durationMin, Number(runRow.duration_max_days ?? durationMin));
   const latestReturnDate = runRow.return_end_date ?? runRow.departure_end_date;
-  const lastPossibleDeparture = addDays(latestReturnDate, -durationMin);
+  const lastDepartureForReturn = addDays(latestReturnDate, -durationMin);
+  // Respect the session's latest departure date as well as its latest return.
+  const lastPossibleDeparture =
+    runRow.departure_end_date && runRow.departure_end_date < lastDepartureForReturn
+      ? runRow.departure_end_date
+      : lastDepartureForReturn;
   const allPairs = [];
 
   for (
@@ -1585,9 +1590,8 @@ function refreshStrategyExperimentGroup(db, groupId) {
       armLabel:
         efficiencySummary.baselineLabel ??
         run.strategy_experiment_arm_label ??
-        (efficiencySummary.samplingMode === "adaptive_coverage"
-          ? "Adaptive coverage baseline"
-          : "Round trip baseline"),
+        DATE_SAMPLING_LABELS[efficiencySummary.samplingMode] ??
+        "Round trip baseline",
       bestFareFirstSeenQueryNumber:
         typeof efficiencySummary.bestFareFirstSeenQueryNumber === "number"
           ? efficiencySummary.bestFareFirstSeenQueryNumber
@@ -5143,6 +5147,7 @@ const runRow = db
       r.id,
       r.session_id,
       r.status,
+      r.strategy_experiment_group_id,
       s.origin_airport,
       s.outbound_destination_city,
       s.return_destination_airport,
@@ -5326,9 +5331,19 @@ try {
     );
     const directPairUniverse = allPairs.length > 0 ? allPairs : sampledPairs;
     const samplingMode =
-      baselinePayload.samplingMode === "adaptive_coverage"
-        ? "adaptive_coverage"
+      baselinePayload.samplingMode === "adaptive_coverage" ||
+      DATE_SAMPLING_MODES.includes(baselinePayload.samplingMode)
+        ? baselinePayload.samplingMode
         : "even_coverage";
+    // Date-plan experiment arms choose each pair from the previous results.
+    const datePlanner = DATE_SAMPLING_MODES.includes(samplingMode)
+      ? createDatePlanner(samplingMode, {
+          budget: directSweepLimit,
+          pairs: directPairUniverse,
+          seed: `${runId}:${baselineStrategy.id}`
+        })
+      : null;
+    let datePlannerStep = datePlanner?.next() ?? null;
     const adaptivePlanner =
       samplingMode === "adaptive_coverage"
         ? createAdaptiveDirectSweepPlanner({
@@ -5345,19 +5360,24 @@ try {
             sessionSignals: collectHistoricalDatePairSignals(db, runRow.session_id)
           })
         : null;
-    const directSweepQueue = adaptivePlanner?.seedPairs ?? sampledPairs;
+    const directSweepQueue = datePlanner ? [] : adaptivePlanner?.seedPairs ?? sampledPairs;
     const seedSweepQueryCount = adaptivePlanner?.seedPairs?.length ?? directSweepQueue.length;
     const directSweepOutcomes = [];
     let executedDirectSweepCount = 0;
-    const maxDirectSweepIterations = adaptivePlanner?.totalLimit ?? directSweepQueue.length;
+    const maxDirectSweepIterations = datePlanner
+      ? directSweepLimit
+      : adaptivePlanner?.totalLimit ?? directSweepQueue.length;
 
     for (let queryPriority = 0; queryPriority < maxDirectSweepIterations; queryPriority += 1) {
       if (isRunCancelled(db, runId)) {
         break;
       }
 
-      const pair =
-        queryPriority < directSweepQueue.length
+      const pair = datePlanner
+        ? datePlannerStep && !datePlannerStep.done
+          ? datePlannerStep.value
+          : null
+        : queryPriority < directSweepQueue.length
           ? directSweepQueue[queryPriority]
           : adaptivePlanner
             ? selectNextAdaptiveDirectSweepPair(adaptivePlanner)
@@ -5382,7 +5402,9 @@ try {
         reason:
           samplingMode === "adaptive_coverage"
             ? `Adaptive coverage direct sweep query for ${pair.departDate} to ${pair.returnDate}, chosen from the remaining date pairs using current-run rewards, coverage balance, and weak historical session priors.`
-            : `Direct sweep query for ${pair.departDate} to ${pair.returnDate}.`,
+            : datePlanner
+              ? `${DATE_SAMPLING_LABELS[samplingMode]} date plan query for ${pair.departDate} to ${pair.returnDate}.`
+              : `Direct sweep query for ${pair.departDate} to ${pair.returnDate}.`,
         searchRunId: runId,
         source: "planned",
         strategyExecutionId: baselineStrategy.id
@@ -5446,6 +5468,14 @@ try {
         if (adaptivePlanner) {
           recordAdaptiveDirectSweepOutcome(adaptivePlanner, pair, queryResult);
         }
+        if (datePlanner) {
+          // An empty result is reported as missing, never as expensive.
+          datePlannerStep = datePlanner.next(
+            queryResult.createdCandidates.length > 0
+              ? { price: Math.min(...queryResult.createdCandidates.map((candidate) => candidate.displayedAmount)) }
+              : null
+          );
+        }
       } catch (queryError) {
         rethrowIfBlocked(db, queryExecution.id, queryError);
         failQueryExecution(
@@ -5476,6 +5506,9 @@ try {
         });
         if (adaptivePlanner) {
           recordAdaptiveDirectSweepOutcome(adaptivePlanner, pair, { createdCandidates: [] });
+        }
+        if (datePlanner) {
+          datePlannerStep = datePlanner.next(null);
         }
       }
 
