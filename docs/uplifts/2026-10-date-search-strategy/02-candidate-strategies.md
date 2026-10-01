@@ -56,6 +56,12 @@ runs cover different pairs (quick win QW1 below).
 
 ### S2 · Calendar-first. Depends on H2
 
+> **Untrusted input.** The owner does not trust the calendar's accuracy. S2,
+> and any use of calendar prices in S3c or S8, is only allowed if analysis A5
+> passes on real data, including the blind-spot check (does the calendar rank
+> the truly cheapest days among its own cheapest?). Until then, calendar data
+> is collected and measured but never used to choose dates.
+
 1. Load one one-way outbound page and one one-way return page. Read the daily
    lowest-price calendar for both directions. If the calendar does not span the
    whole window, load more pages.
@@ -147,7 +153,7 @@ S8 on regret.
 
 ### S8 · Hybrid (expected winner, to be confirmed by data)
 
-1. **Prior:** S2 calendars (about 2–6 loads).
+1. **Prior (optional):** S2 calendars (about 2–6 loads), only if A5 passes. Otherwise skip this step.
 2. **Candidates:** S3c airline-aware one-way loads on the cheapest days.
 3. **Shortlist:** the top 3K pairs by airline-aware score, plus the best 2 pairs
    from S5's model to cover calendar gaps.

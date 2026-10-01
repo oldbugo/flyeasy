@@ -49,4 +49,4 @@ desktop-capture.png
 desktop-debug.log
 
 # Fare-grid research data (raw Trip.com captures; analysis outputs live in docs/)
-research/
+/research/

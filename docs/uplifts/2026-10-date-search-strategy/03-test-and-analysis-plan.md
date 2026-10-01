@@ -96,7 +96,7 @@ the charts as committed images or an HTML report.
 | A3 | Smoothness: autocorrelation at lag 1 and lag 7 along departure and along trip length; count of local minima | H6 | Correlogram, minima map | S4 stays only if lag-1 autocorrelation is ≥ 0.5 and there are ≤ 3 basins |
 | A4 | Separability: Spearman correlation between the round-trip price and `ow_out + ow_ret`; recall of the true top 10 pairs inside the top 30 by one-way score | H3 | Scatter plot, recall@30 | S3 is viable if Spearman ≥ 0.7 and recall@30 ≥ 0.8 |
 | A4b | Airline-aware separability: the same test using per-airline one-way minima | H4 | As A4, per airline | S3b is preferred if recall@30 beats A4 by ≥ 0.1 |
-| A5 | Calendar validity: calendar price vs live price; coverage; `-1` rate; staleness vs lead time | H2 | Error distribution | S2 is viable if the median error is ≤ 5%, the 90th-percentile error is ≤ 15%, and coverage is ≥ 80% of days |
+| A5 | Calendar validity: calendar price vs live price; coverage; `-1` rate; staleness vs lead time; **blind spots** (share of the truly cheapest 10% of days that the calendar ranks in its cheapest 30%) | H2 | Error distribution, cheap-day recall | S2 is viable if the median error is ≤ 5%, the 90th-percentile error is ≤ 15%, coverage is ≥ 80% of days **and** cheap-day recall is ≥ 0.8. With recall ≥ 0.8 alone, the calendar may only be used for ranking |
 | A6 | Screen validity at scale, from `verify` vs `rt_grid` | H8 | Match rate | S6 is adopted if ≥ 90% match within 1% |
 | A7 | Drift and stability: sentinel drift per day; Kendall tau between the original grid and the +7 day re-snapshot | H9 | Drift curve, tau | Priors can be reused across runs if tau is ≥ 0.6 |
 | A8 | Airline anatomy: which airline is cheapest on which dates; operating weekdays; share of top-decile pairs per airline; round-trip discount vs two one-ways per airline | H4, H5 | Table and calendar strip | Explains *why* certain dates are cheap. Feeds S3b and S5 features |
@@ -192,7 +192,7 @@ Hit@5% at the balanced-intensity budget, and report the gap.
 
 ## Deliverables checklist
 
-- [ ] Phase 0 spike notes (append to this folder as `03a-spike-results.md`)
+- [ ] Phase 0 spike notes in [`03a-spike-results.md`](03a-spike-results.md). Started; live collection is blocked
 - [ ] Period A grid collected (≥ 95% of pairs priced)
 - [ ] Period B grid collected (≥ 95% of pairs priced, or B-lite)
 - [ ] `04-analysis-results.md` with A1–A9 and their decisions
